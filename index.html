@@ -90,6 +90,12 @@ input, select { font: inherit; color: var(--ink); background: var(--bg); border:
 .sp .val small { display: block; font-size: .8rem; color: var(--muted); }
 .sp + .sp { margin-top: 10px; }
 
+.power { display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 64px; padding: 0 20px; border-radius: 14px; font-size: 1.15rem; font-weight: 600; }
+.power b { font-size: 1.15rem; padding: 6px 16px; border-radius: 999px; background: var(--line); color: var(--muted); }
+.power[aria-pressed="true"] { background: var(--heat-soft); border-color: var(--heat); color: var(--heat); }
+.power[aria-pressed="true"] b { background: var(--heat); color: #fff; }
+.power.cool[aria-pressed="true"] { background: var(--cool-soft); border-color: var(--cool); color: var(--cool); }
+.power.cool[aria-pressed="true"] b { background: var(--cool); }
 .linkbar { justify-content: space-between; padding: 10px 12px 10px 16px; }
 .linkbar span { flex: 1 1 140px; font-size: .92rem; }
 .linkbar button { flex: 0 0 auto; }
@@ -153,7 +159,8 @@ pre { font: .75rem/1.4 var(--mono); background: var(--bg); border-radius: 8px; p
         <div class="inside" aria-label="Inside temperature"><span id="tIn">--</span><sup>°F</sup></div>
         <div class="running">Right now<b id="run">--</b></div>
       </div>
-      <div class="modes" role="group" aria-label="Mode">
+      <button id="power" class="power" aria-pressed="false" hidden><span id="powerLabel">Heat</span><b id="powerState">Off</b></button>
+      <div id="modes" class="modes" role="group" aria-label="Mode">
         <button data-mode="0">Off</button>
         <button data-mode="1">Fan</button>
         <button data-mode="2">Cool</button>
@@ -183,7 +190,7 @@ pre { font: .75rem/1.4 var(--mono); background: var(--bg); border-radius: 8px; p
       </div>
     </div>
 
-    <div class="panel stack">
+    <div id="presetPanel" class="panel stack">
       <h2>Presets</h2>
       <div class="presets">
         <div class="preset">
@@ -202,6 +209,13 @@ pre { font: .75rem/1.4 var(--mono); background: var(--bg); border-radius: 8px; p
         <button id="btnRefresh">Refresh</button>
         <button id="btnDisconnect">Disconnect</button>
       </div>
+      <label>Season
+        <select id="season">
+          <option value="winter">Winter: heat on or off</option>
+          <option value="summer">Summer: cool on or off</option>
+          <option value="all">All modes</option>
+        </select>
+      </label>
       <p class="note" id="updated">Not updated yet</p>
       <details>
         <summary>Diagnostics</summary>
@@ -344,7 +358,21 @@ function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = fals
 function store(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} }
 function load(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
 
+// Season: winter/summer show a single power switch for heat/cool; "all" shows every mode.
+function season() { return load('et_season') || 'winter'; }
+function renderSeason() {
+  const s = season(), simple = s !== 'all';
+  $('power').hidden = !simple; $('modes').hidden = simple;
+  $('power').classList.toggle('cool', s === 'summer');
+  $('powerLabel').textContent = s === 'summer' ? 'Cooling' : 'Heat';
+  $('presetPanel').hidden = s === 'summer';
+  const on = !!st && st.mode === (s === 'summer' ? 2 : 4);
+  $('power').setAttribute('aria-pressed', String(on));
+  $('powerState').textContent = on ? 'On' : 'Off';
+}
+
 function render() {
+  renderSeason();
   if (!st) return;
   $('tIn').textContent = st.inside;
   const r = $('run');
@@ -489,6 +517,14 @@ function showLogin(show) { $('login').hidden = !show; $('saved').hidden = show; 
 
   $('btnConnect').onclick = () => connect(false);
   $('btnLink').onclick = () => connect(false);
+  $('season').value = season();
+  $('season').onchange = () => { store('et_season', $('season').value); render(); };
+  $('power').onclick = () => {
+    if (!st || !linked) { toast('Not connected. Tap Connect first.'); return; }
+    const m = season() === 'summer' ? 2 : 4, turnOn = st.mode !== m;
+    st.mode = turnOn ? m : 0; render();
+    apply(turnOn ? { power: 1, mode: m } : { power: 0, mode: 0 });
+  };
   $('btnAll').onclick = () => connect(false, true);
   $('btnDemo').onclick = () => connect(true);
   $('btnRefresh').onclick = refresh;

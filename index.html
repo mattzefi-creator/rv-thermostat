@@ -90,6 +90,9 @@ input, select { font: inherit; color: var(--ink); background: var(--bg); border:
 .sp .val small { display: block; font-size: .8rem; color: var(--muted); }
 .sp + .sp { margin-top: 10px; }
 
+.linkbar { justify-content: space-between; padding: 10px 12px 10px 16px; }
+.linkbar span { flex: 1 1 140px; font-size: .92rem; }
+.linkbar button { flex: 0 0 auto; }
 /* presets */
 .presets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
 .preset { display: grid; gap: 6px; }
@@ -141,6 +144,10 @@ pre { font: .75rem/1.4 var(--mono); background: var(--bg); border-radius: 8px; p
 
   <!-- Controls -->
   <section id="controls" class="stack" hidden>
+    <div id="linkBar" class="panel row linkbar" hidden>
+      <span id="linkMsg">Not connected</span>
+      <button id="btnLink" class="primary">Connect</button>
+    </div>
     <div class="panel stack">
       <div class="readout">
         <div class="inside" aria-label="Inside temperature"><span id="tIn">--</span><sup>°F</sup></div>
@@ -187,7 +194,6 @@ pre { font: .75rem/1.4 var(--mono); background: var(--bg); border-radius: 8px; p
           <button id="btnComfort" class="chip">Comfort<small>61°</small></button>
         </div>
       </div>
-      <p class="note">Both presets heat only. Near freezing, heat should run on the furnace, since a heat pump can't keep up.</p>
       <div id="storeResult" class="result" hidden></div>
     </div>
 
@@ -223,6 +229,8 @@ const enc = new TextEncoder(), dec = new TextDecoder();
 const $ = id => document.getElementById(id);
 // Bluefy (iPhone) and older browsers may only have writeValue.
 const write = (ch, bytes) => ch.writeValueWithResponse ? ch.writeValueWithResponse(bytes) : ch.writeValue(bytes);
+// Bluetooth calls can hang forever on iPhone; give up after ms.
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + ' timed out')), ms))]);
 
 function log(msg) {
   const line = new Date().toLocaleTimeString() + '  ' + msg;
@@ -259,8 +267,9 @@ class EasyTouch {
     this.device = d;
     d.addEventListener('gattserverdisconnected', () => { this.chars = null; log('Bluetooth disconnected'); onLink(false); });
   }
-  async pick(showAll) {
-    if (!showAll && await this.remembered()) return;
+  // auto: only try the saved thermostat (no chooser, works without a tap). Otherwise always show the chooser.
+  async pick(showAll, auto) {
+    if (auto) { if (await this.remembered()) return; throw new Error('No saved thermostat'); }
     this.use(await navigator.bluetooth.requestDevice(showAll
       ? { acceptAllDevices: true, optionalServices: [SERVICE] }
       : { filters: [{ namePrefix: 'Easy Touch' }, { namePrefix: 'EasyTouch' }], optionalServices: [SERVICE] }));
@@ -270,10 +279,8 @@ class EasyTouch {
   async ensure() {
     if (this.chars && this.device.gatt.connected) return;
     log('Connecting…');
-    let server;
-    try { server = await this.device.gatt.connect(); }
-    catch (e) { log('Retrying connect: ' + e.message); await sleep(400); server = await this.device.gatt.connect(); }
-    const svc = await server.getPrimaryService(SERVICE);
+    const server = await withTimeout(this.device.gatt.connect(), 10000, 'Bluetooth connect');
+    const svc = await withTimeout(server.getPrimaryService(SERVICE), 8000, 'Finding thermostat service');
     this.chars = {
       pass: await svc.getCharacteristic(CH_PASS),
       cmd: await svc.getCharacteristic(CH_CMD),
@@ -292,7 +299,7 @@ class EasyTouch {
     return this.run(async () => {
       await this.send({ Type: 'Get Status', Zone: ZONE, ...(this.email ? { EM: this.email } : {}), TM: Math.floor(Date.now() / 1000) });
       await sleep(250);
-      const v = await this.chars.ret.readValue();
+      const v = await withTimeout(this.chars.ret.readValue(), 8000, 'Reading status');
       return parseStatus(dec.decode(v));
     });
   }
@@ -321,10 +328,14 @@ class Demo {
 // ---------- App state & UI ----------
 let dev = null, st = null, pollTimer = null, pending = null;
 
-function onLink(up) {
+let linked = false;
+function onLink(up, msg) {
+  linked = up;
   const c = $('conn');
-  if (dev instanceof Demo) { c.textContent = 'Demo'; c.className = 'pill demo'; return; }
+  if (dev instanceof Demo) { c.textContent = 'Demo'; c.className = 'pill demo'; $('linkBar').hidden = true; return; }
   c.textContent = up ? 'Connected' : 'Not connected'; c.className = 'pill' + (up ? ' on' : '');
+  $('linkBar').hidden = up;
+  if (!up) $('linkMsg').textContent = msg || 'Not connected. Showing the last reading.';
 }
 
 let toastT;
@@ -351,50 +362,73 @@ function render() {
   $('autoHeat').textContent = (pending?.key === 'autoHeat' ? pending.value : st.autoHeat) + '°';
   $('autoCool').textContent = (pending?.key === 'autoCool' ? pending.value : st.autoCool) + '°';
   $('raw').textContent = JSON.stringify(st.raw, null, 1);
-  $('updated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+  $('updated').textContent = (st.cached ? 'Last reading ' : 'Updated ') + new Date(st.at || Date.now()).toLocaleString([], { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' });
 }
 
+// Remember the last reading so the app opens straight to the controls.
+function saveLast() { if (st && !(dev instanceof Demo)) { const { raw, ...rest } = st; store('et_last', JSON.stringify({ ...rest, at: Date.now() })); } }
+function gotStatus(s) { st = s; st.at = Date.now(); render(); saveLast(); }
+
 async function refresh() {
-  try { st = await dev.status(); render(); }
-  catch (e) { log('Status failed: ' + e.message); toast('Couldn\'t read the thermostat. ' + hint(e)); }
+  if (!dev || dev instanceof Demo && !linked) return;
+  try { gotStatus(await dev.status()); }
+  catch (e) { log('Status failed: ' + e.message); onLink(false, 'Lost the connection. ' + hint(e)); }
 }
 
 function hint(e) {
   const m = String(e && e.message || e);
   if (/cancel/i.test(m)) return 'No thermostat was picked.';
-  if (/GATT|disconnect|network/i.test(m)) return 'Move closer, close the Micro-Air app, and tap Refresh.';
+  if (/GATT|disconnect|network|timed out/i.test(m)) return 'Move closer, close the Micro-Air app, and tap Connect.';
   return m;
 }
 
 function startPolling() { stopPolling(); pollTimer = setInterval(() => { if (!document.hidden) refresh(); }, 20000); }
 function stopPolling() { clearInterval(pollTimer); }
 
-async function connect(demo, showAll) {
-  const email = $('email').value.trim(), pw = $('password').value;
+function showControls() { $('setup').hidden = true; $('controls').hidden = false; }
+
+// auto = silent reconnect to the saved thermostat on open (no tap, no chooser).
+async function connect(demo, showAll, auto) {
+  const email = auto ? load('et_email') : $('email').value.trim();
+  const pw = auto ? load('et_pw') : ($('password').value || load('et_pw'));
   if (!demo) {
-    if (!pw) { showLogin(true); toast('Enter your Micro-Air app password first.'); return; }
-    store('et_email', email || null); store('et_pw', pw); showLogin(false);
+    if (!pw) { showControlsOrSetup(); showLogin(true); toast('Enter your Micro-Air app password first.'); return; }
+    store('et_email', email || null); store('et_pw', pw);
   }
   dev = demo ? new Demo() : new EasyTouch(email, pw);
-  const btn = demo ? $('btnDemo') : showAll ? $('btnAll') : $('btnConnect');
+  const btn = demo ? $('btnDemo') : showAll ? $('btnAll') : $('controls').hidden ? $('btnConnect') : $('btnLink');
   btn.disabled = true; btn.classList.add('busy');
+  if (!demo && !$('controls').hidden) $('linkMsg').textContent = 'Connecting…';
   try {
-    await dev.pick(showAll);
-    st = await dev.status();
-    $('setup').hidden = true; $('controls').hidden = false;
-    render(); startPolling();
+    await dev.pick(showAll, auto);
+    gotStatus(await dev.status());
+    showControls(); startPolling();
   } catch (e) {
-    log('Connect failed: ' + e.message); toast(hint(e)); dev = null; onLink(false);
+    log('Connect failed: ' + e.message);
+    if (auto) { onLink(false, 'Tap Connect to link to your thermostat.'); return; }
+    toast(hint(e)); onLink(false, 'Couldn\'t connect. ' + hint(e));
     $('setupLog').hidden = false; $('setupLog').textContent = $('log').textContent;
   } finally { btn.disabled = false; btn.classList.remove('busy'); }
 }
 
+// Open straight to the controls when we've connected before; the login screen is only for first use.
+function showControlsOrSetup() {
+  const last = load('et_last');
+  if (load('et_pw')) {
+    try { st = last ? { ...JSON.parse(last), cached: true } : null; } catch (e) { st = null; }
+    showControls(); render(); onLink(false);
+    return true;
+  }
+  return false;
+}
+
 // Send a change, then read back and report what the thermostat actually kept.
 async function apply(changes, check) {
+  if (!dev || !linked) { pending = null; render(); toast('Not connected. Tap Connect first.'); return; }
   try {
     await dev.change(changes);
     await sleep(500);
-    st = await dev.status(); pending = null; render();
+    pending = null; gotStatus(await dev.status());
     if (check) {
       const got = st[check.key];
       if (got === check.want) return { ok: true, got };
@@ -454,6 +488,7 @@ function showLogin(show) { $('login').hidden = !show; $('saved').hidden = show; 
   sel.onchange = () => { store('et_night', sel.value); $('nightLabel').textContent = sel.value + '°'; };
 
   $('btnConnect').onclick = () => connect(false);
+  $('btnLink').onclick = () => connect(false);
   $('btnAll').onclick = () => connect(false, true);
   $('btnDemo').onclick = () => connect(true);
   $('btnRefresh').onclick = refresh;
@@ -465,21 +500,22 @@ function showLogin(show) { $('login').hidden = !show; $('saved').hidden = show; 
   };
   document.querySelectorAll('.modes button').forEach(b => b.onclick = () => {
     const m = +b.dataset.mode;
+    if (!st || !linked) { toast('Not connected. Tap Connect first.'); return; }
     st.mode = m; render();
     apply(m === 0 ? { power: 0, mode: 0 } : { power: 1, mode: m });
   });
   document.querySelectorAll('[data-adj]').forEach(b => b.onclick = () => {
     const d = +b.dataset.adj;
+    if (!st || !linked) { toast('Not connected. Tap Connect first.'); return; }
     if (b.dataset.auto) return adjust(b.dataset.auto === 'heat' ? 'autoHeat' : 'autoCool', d);
     adjust(st.mode === 2 ? 'cool' : st.mode === 6 ? 'dry' : 'heat', d);
   });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && dev) refresh(); });
-  // Auto-connect on open when login and a saved thermostat are available.
+  // Open on the controls with the last reading, then try a silent reconnect.
+  const onControls = showControlsOrSetup();
   if ('bluetooth' in navigator && load('et_pw') && load('et_dev') && navigator.bluetooth.getDevices) {
-    $('autoMsg').hidden = false;
-    new EasyTouch('', '').remembered()
-      .then(ok => ok ? connect(false) : null)
-      .finally(() => { $('autoMsg').hidden = true; });
+    if (onControls) $('linkMsg').textContent = 'Connecting…'; else $('autoMsg').hidden = false;
+    connect(false, false, true).finally(() => { $('autoMsg').hidden = true; });
   }
 })();
 </script>

@@ -91,11 +91,12 @@ input, select { font: inherit; color: var(--ink); background: var(--bg); border:
 .sp + .sp { margin-top: 10px; }
 
 /* presets */
-.presets { display: flex; flex-wrap: wrap; gap: 8px; }
-.preset { display: flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px 3px 3px; }
-.chip { min-height: 34px; padding: 4px 12px; border-radius: 999px; font-size: .88rem; font-weight: 600; background: var(--heat-soft); color: var(--heat); border-color: transparent; }
-.preset select { width: auto; min-height: 30px; padding: 2px 4px; border: 0; background: transparent; font-size: .88rem; }
-.chip-temp { font-size: .88rem; font-variant-numeric: tabular-nums; padding: 0 4px; }
+.presets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
+.preset { display: grid; gap: 6px; }
+.chip { min-height: 88px; border-radius: 14px; font-size: 1.25rem; font-weight: 700; background: var(--heat-soft); color: var(--heat); border: 2px solid transparent; display: grid; place-content: center; gap: 2px; }
+.chip:active { border-color: var(--heat); }
+.chip small { font-size: 1.6rem; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
+.preset select { min-height: 40px; padding: 6px 10px; font-size: .9rem; }
 .result { border-radius: 10px; padding: 10px 12px; font-size: .9rem; }
 .result.ok { background: var(--ok-soft); color: var(--ok); }
 .result.warn { background: var(--warn-soft); color: var(--warn); }
@@ -172,12 +173,11 @@ pre { font: .75rem/1.4 var(--mono); background: var(--bg); border-radius: 8px; p
       <h2>Presets</h2>
       <div class="presets">
         <div class="preset">
-          <button id="btnNight" class="chip">Night</button>
+          <button id="btnNight" class="chip">Night<small id="nightLabel">35°</small></button>
           <select id="nightTemp" aria-label="Night temperature"></select>
         </div>
         <div class="preset">
-          <button id="btnComfort" class="chip">Comfort</button>
-          <span class="chip-temp">61°</span>
+          <button id="btnComfort" class="chip">Comfort<small>61°</small></button>
         </div>
       </div>
       <p class="note">Both presets heat only. Near freezing, heat should run on the furnace, since a heat pump can't keep up.</p>
@@ -437,8 +437,9 @@ async function preset(name, want, btn) {
   if (!('bluetooth' in navigator)) { $('nobt').hidden = false; $('btnConnect').disabled = true; $('btnAll').disabled = true; }
   $('email').value = load('et_email'); $('password').value = load('et_pw');
   const sel = $('nightTemp'), saved = +load('et_night') || 35;
-  for (let t = LIMITS.heatMin + 1; t <= 60; t++) sel.add(new Option(t + '°', t, false, t === saved));
-  sel.onchange = () => store('et_night', sel.value);
+  for (let t = LIMITS.heatMin + 1; t <= 60; t++) sel.add(new Option('Night temp ' + t + '°', t, false, t === saved));
+  $('nightLabel').textContent = sel.value + '°';
+  sel.onchange = () => { store('et_night', sel.value); $('nightLabel').textContent = sel.value + '°'; };
 
   $('btnConnect').onclick = () => connect(false);
   $('btnAll').onclick = () => connect(false, true);

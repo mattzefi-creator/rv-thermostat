@@ -90,8 +90,12 @@ input, select { font: inherit; color: var(--ink); background: var(--bg); border:
 .sp .val small { display: block; font-size: .8rem; color: var(--muted); }
 .sp + .sp { margin-top: 10px; }
 
-/* storage */
-.storage { border-color: var(--heat); background: linear-gradient(var(--heat-soft), var(--heat-soft)) top / 100% 4px no-repeat, var(--panel); }
+/* presets */
+.presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.preset { display: flex; align-items: center; gap: 4px; border: 1px solid var(--line); border-radius: 999px; padding: 3px 10px 3px 3px; }
+.chip { min-height: 34px; padding: 4px 12px; border-radius: 999px; font-size: .88rem; font-weight: 600; background: var(--heat-soft); color: var(--heat); border-color: transparent; }
+.preset select { width: auto; min-height: 30px; padding: 2px 4px; border: 0; background: transparent; font-size: .88rem; }
+.chip-temp { font-size: .88rem; font-variant-numeric: tabular-nums; padding: 0 4px; }
 .result { border-radius: 10px; padding: 10px 12px; font-size: .9rem; }
 .result.ok { background: var(--ok-soft); color: var(--ok); }
 .result.warn { background: var(--warn-soft); color: var(--warn); }
@@ -164,15 +168,19 @@ pre { font: .75rem/1.4 var(--mono); background: var(--bg); border-radius: 8px; p
       </div>
     </div>
 
-    <div class="panel stack storage">
-      <h2>Storage mode</h2>
-      <p class="note">Heats only to keep the coach just above freezing. Check that heat runs on the <strong>furnace</strong>: a heat pump can't keep up near freezing.</p>
-      <div class="row">
-        <label style="flex: 0 1 120px">Hold at
-          <select id="storeTemp"></select>
-        </label>
-        <button id="btnStore" class="heat" style="align-self: end">Start storage mode</button>
+    <div class="panel stack">
+      <h2>Presets</h2>
+      <div class="presets">
+        <div class="preset">
+          <button id="btnNight" class="chip">Night</button>
+          <select id="nightTemp" aria-label="Night temperature"></select>
+        </div>
+        <div class="preset">
+          <button id="btnComfort" class="chip">Comfort</button>
+          <span class="chip-temp">61°</span>
+        </div>
       </div>
+      <p class="note">Both presets heat only. Near freezing, heat should run on the furnace, since a heat pump can't keep up.</p>
       <div id="storeResult" class="result" hidden></div>
     </div>
 
@@ -388,38 +396,38 @@ function adjust(key, delta) {
   }, 1200);
 }
 
-async function storageMode() {
-  const want = +$('storeTemp').value;
+// Presets: switch to Heat at a fixed setpoint, then report what the thermostat kept.
+async function preset(name, want, btn) {
   const out = $('storeResult');
-  const btn = $('btnStore');
   btn.disabled = true; btn.classList.add('busy');
-  out.hidden = false; out.className = 'result'; out.textContent = `Setting heat to ${want}°F…`;
+  out.hidden = false; out.className = 'result'; out.textContent = `Setting ${name} (heat to ${want}°F)…`;
   const res = await apply({ power: 1, mode: 4, heat_sp: want }, { key: 'heat', want });
   btn.disabled = false; btn.classList.remove('busy');
   if (!res) { out.className = 'result bad'; out.textContent = 'The command didn\'t go through. Check the connection and try again.'; return; }
-  store('et_store', String(want));
   if (res.ok) {
     out.className = 'result ok';
-    out.textContent = `Storage mode is on. The thermostat accepted ${res.got}°F and will heat only below that.`;
+    out.textContent = `${name} is on. Heating to ${res.got}°F.`;
   } else {
     out.className = 'result warn';
-    out.textContent = `The thermostat changed ${want}°F to ${res.got}°F, so its own firmware enforces that floor. Storage mode can't go lower over Bluetooth. A separate 12V freeze thermostat on the furnace wire is the fix.`;
+    out.textContent = `The thermostat changed ${want}°F to ${res.got}°F, so its own firmware enforces that floor. A separate 12V freeze thermostat on the furnace wire can hold it lower.`;
   }
-  log(`Storage test: asked ${want}, thermostat kept ${res.got}`);
+  log(`${name}: asked ${want}, thermostat kept ${res.got}`);
 }
 
 // ---------- Wire up ----------
 (function init() {
   if (!('bluetooth' in navigator)) { $('nobt').hidden = false; $('btnConnect').disabled = true; $('btnAll').disabled = true; }
   $('email').value = load('et_email'); $('password').value = load('et_pw');
-  const sel = $('storeTemp'), saved = +load('et_store') || 35;
-  for (let t = LIMITS.heatMin + 1; t <= 45; t++) sel.add(new Option(t + '°F', t, false, t === saved));
+  const sel = $('nightTemp'), saved = +load('et_night') || 35;
+  for (let t = LIMITS.heatMin + 1; t <= 60; t++) sel.add(new Option(t + '°', t, false, t === saved));
+  sel.onchange = () => store('et_night', sel.value);
 
   $('btnConnect').onclick = () => connect(false);
   $('btnAll').onclick = () => connect(false, true);
   $('btnDemo').onclick = () => connect(true);
   $('btnRefresh').onclick = refresh;
-  $('btnStore').onclick = storageMode;
+  $('btnNight').onclick = () => preset('Night', +$('nightTemp').value, $('btnNight'));
+  $('btnComfort').onclick = () => preset('Comfort', 61, $('btnComfort'));
   $('btnDisconnect').onclick = () => {
     stopPolling(); dev && dev.disconnect(); dev = null; st = null; onLink(false);
     $('controls').hidden = true; $('setup').hidden = false; $('storeResult').hidden = true;

@@ -122,6 +122,9 @@ pre { font: .75rem/1.4 var(--mono); background: var(--bg); border-radius: 8px; p
       <button id="btnConnect" class="primary">Find thermostat</button>
       <button id="btnDemo">Try demo</button>
     </div>
+    <p class="note">Thermostat not in the list? Tap below to see every nearby Bluetooth device. Pick the one that appears only when you're near the thermostat, often an unnamed or "Unknown" entry.</p>
+    <button id="btnAll">Show all nearby devices</button>
+    <pre id="setupLog" class="log" hidden></pre>
   </section>
 
   <!-- Controls -->
@@ -226,13 +229,12 @@ class EasyTouch {
   constructor(email, password) { this.email = email; this.password = password; this.q = Promise.resolve(); }
   // Serialize every transaction; the thermostat handles one at a time.
   run(fn) { const p = this.q.then(fn, fn); this.q = p.catch(() => {}); return p; }
-  async pick() {
-    this.device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: 'EasyTouch' }, { services: [SERVICE] }],
-      optionalServices: [SERVICE],
-    });
+  async pick(showAll) {
+    this.device = await navigator.bluetooth.requestDevice(showAll
+      ? { acceptAllDevices: true, optionalServices: [SERVICE] }
+      : { filters: [{ namePrefix: 'EasyTouch' }, { namePrefix: 'Easy' }, { namePrefix: 'ET' }, { services: [SERVICE] }], optionalServices: [SERVICE] });
     this.device.addEventListener('gattserverdisconnected', () => { log('Bluetooth disconnected'); onLink(false); });
-    log('Picked ' + (this.device.name || 'device'));
+    log('Picked "' + (this.device.name || '(no name)') + '" id ' + this.device.id);
   }
   async ensure() {
     if (this.chars && this.device.gatt.connected) return;
@@ -334,22 +336,23 @@ function hint(e) {
 function startPolling() { stopPolling(); pollTimer = setInterval(() => { if (!document.hidden) refresh(); }, 20000); }
 function stopPolling() { clearInterval(pollTimer); }
 
-async function connect(demo) {
+async function connect(demo, showAll) {
   const email = $('email').value.trim(), pw = $('password').value;
   if (!demo) {
     if (!email || !pw) { toast('Enter your Micro-Air email and password first.'); return; }
     store('et_email', email); store('et_pw', pw);
   }
   dev = demo ? new Demo() : new EasyTouch(email, pw);
-  const btn = demo ? $('btnDemo') : $('btnConnect');
+  const btn = demo ? $('btnDemo') : showAll ? $('btnAll') : $('btnConnect');
   btn.disabled = true; btn.classList.add('busy');
   try {
-    await dev.pick();
+    await dev.pick(showAll);
     st = await dev.status();
     $('setup').hidden = true; $('controls').hidden = false;
     render(); startPolling();
   } catch (e) {
     log('Connect failed: ' + e.message); toast(hint(e)); dev = null; onLink(false);
+    $('setupLog').hidden = false; $('setupLog').textContent = $('log').textContent;
   } finally { btn.disabled = false; btn.classList.remove('busy'); }
 }
 
@@ -407,12 +410,13 @@ async function storageMode() {
 
 // ---------- Wire up ----------
 (function init() {
-  if (!('bluetooth' in navigator)) { $('nobt').hidden = false; $('btnConnect').disabled = true; }
+  if (!('bluetooth' in navigator)) { $('nobt').hidden = false; $('btnConnect').disabled = true; $('btnAll').disabled = true; }
   $('email').value = load('et_email'); $('password').value = load('et_pw');
   const sel = $('storeTemp'), saved = +load('et_store') || 35;
   for (let t = LIMITS.heatMin + 1; t <= 45; t++) sel.add(new Option(t + '°F', t, false, t === saved));
 
   $('btnConnect').onclick = () => connect(false);
+  $('btnAll').onclick = () => connect(false, true);
   $('btnDemo').onclick = () => connect(true);
   $('btnRefresh').onclick = refresh;
   $('btnStore').onclick = storageMode;

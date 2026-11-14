@@ -120,15 +120,22 @@ pre { font: .75rem/1.4 var(--mono); background: var(--bg); border-radius: 8px; p
   <section id="setup" class="panel stack">
     <h2>Connect to thermostat</h2>
     <p id="nobt" class="note" hidden>This browser can't use Bluetooth. On iPhone, open this page in the free <strong>Bluefy</strong> browser. On Android or a Mac, use <strong>Chrome</strong>. You can still try the demo below.</p>
-    <p class="note">Use the same email and password as the Micro-Air EasyTouch app. They're saved only on this phone. Close the Micro-Air app first, because the thermostat accepts one Bluetooth connection at a time.</p>
-    <label>Email<input id="email" type="email" autocomplete="username" inputmode="email"></label>
-    <label>Password<input id="password" type="password" autocomplete="current-password"></label>
+    <div id="login" class="stack">
+      <p class="note">Enter your Micro-Air app password once. It's saved only on this phone. Close the Micro-Air app first, because the thermostat accepts one Bluetooth connection at a time.</p>
+      <label>Password<input id="password" type="password" autocomplete="current-password"></label>
+      <label>Email (optional)<input id="email" type="email" autocomplete="username" inputmode="email"></label>
+    </div>
+    <p id="saved" class="note" hidden>Login saved on this phone. <a href="#" id="changeLogin">Change</a></p>
     <div class="row">
-      <button id="btnConnect" class="primary">Find thermostat</button>
+      <button id="btnConnect" class="primary">Connect</button>
       <button id="btnDemo">Try demo</button>
     </div>
-    <p class="note">Thermostat not in the list? Tap below to see every nearby Bluetooth device. Pick the one that appears only when you're near the thermostat, often an unnamed or "Unknown" entry.</p>
-    <button id="btnAll">Show all nearby devices</button>
+    <p id="autoMsg" class="note" hidden>Connecting to your thermostat…</p>
+    <details>
+      <summary>Thermostat not found?</summary>
+      <p class="note">Tap below to see every nearby Bluetooth device, then pick yours.</p>
+      <button id="btnAll">Show all nearby devices</button>
+    </details>
     <pre id="setupLog" class="log" hidden></pre>
   </section>
 
@@ -283,7 +290,7 @@ class EasyTouch {
   }
   status() {
     return this.run(async () => {
-      await this.send({ Type: 'Get Status', Zone: ZONE, EM: this.email, TM: Math.floor(Date.now() / 1000) });
+      await this.send({ Type: 'Get Status', Zone: ZONE, ...(this.email ? { EM: this.email } : {}), TM: Math.floor(Date.now() / 1000) });
       await sleep(250);
       const v = await this.chars.ret.readValue();
       return parseStatus(dec.decode(v));
@@ -365,8 +372,8 @@ function stopPolling() { clearInterval(pollTimer); }
 async function connect(demo, showAll) {
   const email = $('email').value.trim(), pw = $('password').value;
   if (!demo) {
-    if (!email || !pw) { toast('Enter your Micro-Air email and password first.'); return; }
-    store('et_email', email); store('et_pw', pw);
+    if (!pw) { showLogin(true); toast('Enter your Micro-Air app password first.'); return; }
+    store('et_email', email || null); store('et_pw', pw); showLogin(false);
   }
   dev = demo ? new Demo() : new EasyTouch(email, pw);
   const btn = demo ? $('btnDemo') : showAll ? $('btnAll') : $('btnConnect');
@@ -432,8 +439,13 @@ async function preset(name, want, btn) {
   log(`${name}: asked ${want}, thermostat kept ${res.got}`);
 }
 
+// Show the login fields only until a password is saved.
+function showLogin(show) { $('login').hidden = !show; $('saved').hidden = show; }
+
 // ---------- Wire up ----------
 (function init() {
+  showLogin(!load('et_pw'));
+  $('changeLogin').onclick = e => { e.preventDefault(); showLogin(true); };
   if (!('bluetooth' in navigator)) { $('nobt').hidden = false; $('btnConnect').disabled = true; $('btnAll').disabled = true; }
   $('email').value = load('et_email'); $('password').value = load('et_pw');
   const sel = $('nightTemp'), saved = +load('et_night') || 35;
@@ -463,8 +475,11 @@ async function preset(name, want, btn) {
   });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && dev) refresh(); });
   // Auto-connect on open when login and a saved thermostat are available.
-  if ('bluetooth' in navigator && load('et_email') && load('et_pw') && load('et_dev') && navigator.bluetooth.getDevices) {
-    new EasyTouch('', '').remembered().then(ok => { if (ok) connect(false); });
+  if ('bluetooth' in navigator && load('et_pw') && load('et_dev') && navigator.bluetooth.getDevices) {
+    $('autoMsg').hidden = false;
+    new EasyTouch('', '').remembered()
+      .then(ok => ok ? connect(false) : null)
+      .finally(() => { $('autoMsg').hidden = true; });
   }
 })();
 </script>

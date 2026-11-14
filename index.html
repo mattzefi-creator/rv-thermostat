@@ -84,7 +84,9 @@ input, select { font: inherit; color: var(--ink); background: var(--bg); border:
 
 /* setpoint */
 .sp { display: grid; grid-template-columns: 56px 1fr 56px; align-items: center; gap: 10px; }
-.sp button { font-size: 1.6rem; padding: 0; height: 56px; }
+.pedit { border-top: 1px solid var(--line); padding-top: 12px; }
+.chip { touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+.sp button { font-size: 1.6rem; padding: 0; height: 56px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 .sp .val { text-align: center; }
 .sp .val span { font-size: 2.6rem; font-weight: 500; font-variant-numeric: tabular-nums; }
 .sp .val small { display: block; font-size: .8rem; color: var(--muted); }
@@ -172,13 +174,17 @@ pre { font: .75rem/1.4 var(--mono); background: var(--bg); border-radius: 8px; p
     <div id="presetPanel" class="panel stack">
       <h2>Presets</h2>
       <div class="presets">
-        <div class="preset">
-          <button id="btnNight" class="chip">Night<small id="nightLabel">35°</small></button>
-          <select id="nightTemp" aria-label="Night temperature"></select>
+        <button id="btnNight" class="chip" data-preset="night">Night<small id="nightLabel">35°</small></button>
+        <button id="btnComfort" class="chip" data-preset="comfort">Comfort<small id="comfortLabel">61°</small></button>
+      </div>
+      <div id="presetEdit" class="stack pedit" hidden>
+        <h2 id="peTitle">Night temperature</h2>
+        <div class="sp">
+          <button id="peDown" aria-label="Lower preset">−</button>
+          <div class="val"><span id="peVal">35°</span></div>
+          <button id="peUp" aria-label="Raise preset">+</button>
         </div>
-        <div class="preset">
-          <button id="btnComfort" class="chip">Comfort<small>61°</small></button>
-        </div>
+        <button id="peDone" class="primary">Done</button>
       </div>
       <div id="storeResult" class="result" hidden></div>
     </div>
@@ -527,6 +533,20 @@ async function preset(name, want, btn) {
   log(`${name}: asked ${want}, thermostat kept ${res.got}`);
 }
 
+// Tap for one step; hold to keep stepping. step() returns false to stop.
+function holdRepeat(b, step) {
+  let t = null;
+  const stop = () => { clearTimeout(t); clearInterval(t); t = null; };
+  b.addEventListener('pointerdown', e => {
+    e.preventDefault(); stop();
+    if (!step()) return;
+    t = setTimeout(() => { t = setInterval(step, 140); }, 400);
+  });
+  ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, stop));
+  b.addEventListener('click', e => { if (e.detail === 0) step(); }); // keyboard
+  b.addEventListener('contextmenu', e => e.preventDefault());
+}
+
 // Show the login fields only until a password is saved.
 function showLogin(show) { $('login').hidden = !show; $('saved').hidden = show; }
 
@@ -536,10 +556,37 @@ function showLogin(show) { $('login').hidden = !show; $('saved').hidden = show; 
   $('changeLogin').onclick = e => { e.preventDefault(); showLogin(true); };
   if (!('bluetooth' in navigator)) { $('nobt').hidden = false; $('btnConnect').disabled = true; $('btnAll').disabled = true; }
   $('email').value = load('et_email'); $('password').value = load('et_pw');
-  const sel = $('nightTemp'), saved = +load('et_night') || 35;
-  for (let t = LIMITS.heatMin + 1; t <= 60; t++) sel.add(new Option('Night temp ' + t + '°', t, false, t === saved));
-  $('nightLabel').textContent = sel.value + '°';
-  sel.onchange = () => { store('et_night', sel.value); $('nightLabel').textContent = sel.value + '°'; };
+  // Presets: tap to apply, hold to change the temperature.
+  const PRESETS = { night: { name: 'Night', def: 35 }, comfort: { name: 'Comfort', def: 61 } };
+  const ptemp = k => +load('et_' + k) || PRESETS[k].def;
+  const plabels = () => { for (const k in PRESETS) $(k + 'Label').textContent = ptemp(k) + '°'; };
+  plabels();
+  let editing = null;
+  const showEdit = k => {
+    editing = k;
+    $('peTitle').textContent = PRESETS[k].name + ' temperature';
+    $('peVal').textContent = ptemp(k) + '°';
+    $('presetEdit').hidden = false;
+  };
+  const bump = d => {
+    if (!editing) return true;
+    const v = Math.min(80, Math.max(LIMITS.heatMin + 1, ptemp(editing) + d));
+    store('et_' + editing, String(v)); $('peVal').textContent = v + '°'; plabels();
+    return true;
+  };
+  holdRepeat($('peDown'), () => bump(-1));
+  holdRepeat($('peUp'), () => bump(1));
+  $('peDone').onclick = () => { editing = null; $('presetEdit').hidden = true; };
+  document.querySelectorAll('[data-preset]').forEach(b => {
+    const k = b.dataset.preset;
+    let t = null, long = false;
+    b.addEventListener('pointerdown', () => { long = false; t = setTimeout(() => { long = true; t = null; navigator.vibrate?.(15); showEdit(k); }, 600); });
+    const cancel = () => { clearTimeout(t); t = null; };
+    b.addEventListener('pointerleave', cancel); b.addEventListener('pointercancel', cancel);
+    b.addEventListener('pointerup', cancel);
+    b.addEventListener('click', e => { if (long) { e.preventDefault(); long = false; return; } preset(PRESETS[k].name, ptemp(k), b); });
+    b.addEventListener('contextmenu', e => e.preventDefault());
+  });
 
   $('btnConnect').onclick = () => connect(false);
   $('btnLink').onclick = () => connect(false);
@@ -554,8 +601,6 @@ function showLogin(show) { $('login').hidden = !show; $('saved').hidden = show; 
   $('btnAll').onclick = () => connect(false, true);
   $('btnDemo').onclick = () => connect(true);
   $('btnRefresh').onclick = refresh;
-  $('btnNight').onclick = () => preset('Night', +$('nightTemp').value, $('btnNight'));
-  $('btnComfort').onclick = () => preset('Comfort', 61, $('btnComfort'));
   $('btnDisconnect').onclick = () => {
     stopPolling(); dev && dev.disconnect(); dev = null; st = null; onLink(false);
     $('controls').hidden = true; $('setup').hidden = false; $('storeResult').hidden = true;
@@ -566,12 +611,14 @@ function showLogin(show) { $('login').hidden = !show; $('saved').hidden = show; 
     st.mode = m; render();
     apply(m === 0 ? { power: 0, mode: 0 } : { power: 1, mode: m });
   });
-  document.querySelectorAll('[data-adj]').forEach(b => b.onclick = () => {
+  // + / −: tap for one degree, hold to keep changing. One command is sent after you let go.
+  document.querySelectorAll('[data-adj]').forEach(b => holdRepeat(b, () => {
     const d = +b.dataset.adj;
-    if (!st || !linked) { toast('Not connected. Tap Connect first.'); return; }
-    if (b.dataset.auto) return adjust(b.dataset.auto === 'heat' ? 'autoHeat' : 'autoCool', d);
-    adjust(st.mode === 2 ? 'cool' : st.mode === 6 ? 'dry' : 'heat', d);
-  });
+    if (!st || !linked) { toast('Not connected. Tap Connect first.'); return false; }
+    if (b.dataset.auto) adjust(b.dataset.auto === 'heat' ? 'autoHeat' : 'autoCool', d);
+    else adjust(st.mode === 2 ? 'cool' : st.mode === 6 ? 'dry' : 'heat', d);
+    return true;
+  }));
   document.addEventListener('visibilitychange', () => { if (!document.hidden && dev) refresh(); });
   // Open on the controls with the last reading, then try a silent reconnect.
   const onControls = showControlsOrSetup();

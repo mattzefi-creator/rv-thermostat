@@ -169,11 +169,25 @@ pre { font: .75rem/1.4 var(--mono); background: var(--bg); border-radius: 8px; p
       </div>
     </div>
 
+    <div id="presetPanel" class="panel stack">
+      <h2>Presets</h2>
+      <div class="presets">
+        <div class="preset">
+          <button id="btnNight" class="chip">Night<small id="nightLabel">35°</small></button>
+          <select id="nightTemp" aria-label="Night temperature"></select>
+        </div>
+        <div class="preset">
+          <button id="btnComfort" class="chip">Comfort<small>61°</small></button>
+        </div>
+      </div>
+      <div id="storeResult" class="result" hidden></div>
+    </div>
+
     <div id="spPanel" class="panel">
       <h2 id="spTitle">Set to</h2>
       <div id="spSingle" class="sp">
         <button data-adj="-1" aria-label="Lower">−</button>
-        <div class="val"><span id="spVal">--</span><small id="spHint"></small></div>
+        <div class="val"><span id="spVal">--</span></div>
         <button data-adj="1" aria-label="Raise">+</button>
       </div>
       <div id="spAuto" hidden>
@@ -188,20 +202,6 @@ pre { font: .75rem/1.4 var(--mono); background: var(--bg); border-radius: 8px; p
           <button data-auto="cool" data-adj="1" aria-label="Raise cool to">+</button>
         </div>
       </div>
-    </div>
-
-    <div id="presetPanel" class="panel stack">
-      <h2>Presets</h2>
-      <div class="presets">
-        <div class="preset">
-          <button id="btnNight" class="chip">Night<small id="nightLabel">35°</small></button>
-          <select id="nightTemp" aria-label="Night temperature"></select>
-        </div>
-        <div class="preset">
-          <button id="btnComfort" class="chip">Comfort<small>61°</small></button>
-        </div>
-      </div>
-      <div id="storeResult" class="result" hidden></div>
     </div>
 
     <div class="panel stack">
@@ -269,13 +269,26 @@ class EasyTouch {
   // Reuse the thermostat picked last time, skipping the chooser, where the browser allows it.
   async remembered() {
     const id = load('et_dev');
+    log('Browser support: getDevices ' + (navigator.bluetooth.getDevices ? 'yes' : 'no') + ', watchAdvertisements ' + ('watchAdvertisements' in (window.BluetoothDevice?.prototype || {}) ? 'yes' : 'no'));
     if (!id || !navigator.bluetooth.getDevices) return false;
     try {
-      const d = (await navigator.bluetooth.getDevices()).find(x => x.id === id);
-      if (!d) return false;
+      const all = await navigator.bluetooth.getDevices();
+      const d = all.find(x => x.id === id) || all.find(x => (x.name || '').replace(/\s/g, '').startsWith('EasyTouch'));
+      if (!d) { log('Saved thermostat not in the browser\'s list'); return false; }
       this.use(d); log('Reusing saved thermostat "' + (d.name || '') + '"');
+      // A remembered device often can't connect until the browser has heard it advertise again.
+      if (d.watchAdvertisements) {
+        const ac = new AbortController();
+        try {
+          await withTimeout(new Promise(res => {
+            d.addEventListener('advertisementreceived', res, { once: true });
+            d.watchAdvertisements({ signal: ac.signal }).catch(() => {});
+          }), 8000, 'Waiting for thermostat');
+          log('Thermostat is in range');
+        } catch (e) { log(e.message); } finally { ac.abort(); }
+      }
       return true;
-    } catch (e) { return false; }
+    } catch (e) { log('Saved-device lookup failed: ' + e.message); return false; }
   }
   use(d) {
     this.device = d;
@@ -386,7 +399,6 @@ function render() {
   const key = st.mode === 2 ? 'cool' : st.mode === 6 ? 'dry' : 'heat';
   $('spTitle').textContent = auto ? 'Keep between' : (st.mode === 2 ? 'Cool to' : st.mode === 6 ? 'Dry at' : 'Heat to');
   $('spVal').textContent = (pending?.key === key ? pending.value : st[key]) + '°';
-  $('spHint').textContent = st.mode === 4 && st.heat <= 40 ? 'Lowest the thermostat has taken so far: ' + st.heat + '°' : '';
   $('autoHeat').textContent = (pending?.key === 'autoHeat' ? pending.value : st.autoHeat) + '°';
   $('autoCool').textContent = (pending?.key === 'autoCool' ? pending.value : st.autoCool) + '°';
   $('raw').textContent = JSON.stringify(st.raw, null, 1);
@@ -433,10 +445,24 @@ async function connect(demo, showAll, auto) {
     showControls(); startPolling();
   } catch (e) {
     log('Connect failed: ' + e.message);
-    if (auto) { onLink(false, 'Tap Connect to link to your thermostat.'); return; }
+    if (auto) { onLink(false, 'Tap anywhere to connect.'); armTapToConnect(); return; }
     toast(hint(e)); onLink(false, 'Couldn\'t connect. ' + hint(e));
     $('setupLog').hidden = false; $('setupLog').textContent = $('log').textContent;
   } finally { btn.disabled = false; btn.classList.remove('busy'); }
+}
+
+// iPhone only lets a page start Bluetooth from a tap, so the first tap anywhere connects.
+let tapArmed = false;
+function armTapToConnect() {
+  if (tapArmed || !('bluetooth' in navigator) || !load('et_pw')) return;
+  tapArmed = true;
+  const go = e => {
+    if (linked || e.target.closest('select, input, #btnLink, #btnAll, #btnDemo, #btnConnect, details')) return;
+    document.removeEventListener('click', go, true); tapArmed = false;
+    e.stopPropagation(); e.preventDefault();
+    connect(false);
+  };
+  document.addEventListener('click', go, true);
 }
 
 // Open straight to the controls when we've connected before; the login screen is only for first use.
@@ -552,6 +578,8 @@ function showLogin(show) { $('login').hidden = !show; $('saved').hidden = show; 
   if ('bluetooth' in navigator && load('et_pw') && load('et_dev') && navigator.bluetooth.getDevices) {
     if (onControls) $('linkMsg').textContent = 'Connecting…'; else $('autoMsg').hidden = false;
     connect(false, false, true).finally(() => { $('autoMsg').hidden = true; });
+  } else if (onControls) {
+    onLink(false, 'Tap anywhere to connect.'); armTapToConnect();
   }
 })();
 </script>

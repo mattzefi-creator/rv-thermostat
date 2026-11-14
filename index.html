@@ -237,17 +237,35 @@ class EasyTouch {
   constructor(email, password) { this.email = email; this.password = password; this.q = Promise.resolve(); }
   // Serialize every transaction; the thermostat handles one at a time.
   run(fn) { const p = this.q.then(fn, fn); this.q = p.catch(() => {}); return p; }
+  // Reuse the thermostat picked last time, skipping the chooser, where the browser allows it.
+  async remembered() {
+    const id = load('et_dev');
+    if (!id || !navigator.bluetooth.getDevices) return false;
+    try {
+      const d = (await navigator.bluetooth.getDevices()).find(x => x.id === id);
+      if (!d) return false;
+      this.use(d); log('Reusing saved thermostat "' + (d.name || '') + '"');
+      return true;
+    } catch (e) { return false; }
+  }
+  use(d) {
+    this.device = d;
+    d.addEventListener('gattserverdisconnected', () => { this.chars = null; log('Bluetooth disconnected'); onLink(false); });
+  }
   async pick(showAll) {
-    this.device = await navigator.bluetooth.requestDevice(showAll
+    if (!showAll && await this.remembered()) return;
+    this.use(await navigator.bluetooth.requestDevice(showAll
       ? { acceptAllDevices: true, optionalServices: [SERVICE] }
-      : { filters: [{ namePrefix: 'EasyTouch' }, { namePrefix: 'Easy' }, { namePrefix: 'ET' }, { services: [SERVICE] }], optionalServices: [SERVICE] });
-    this.device.addEventListener('gattserverdisconnected', () => { log('Bluetooth disconnected'); onLink(false); });
+      : { filters: [{ namePrefix: 'Easy Touch' }, { namePrefix: 'EasyTouch' }], optionalServices: [SERVICE] }));
+    store('et_dev', this.device.id);
     log('Picked "' + (this.device.name || '(no name)') + '" id ' + this.device.id);
   }
   async ensure() {
     if (this.chars && this.device.gatt.connected) return;
     log('Connecting…');
-    const server = await this.device.gatt.connect();
+    let server;
+    try { server = await this.device.gatt.connect(); }
+    catch (e) { log('Retrying connect: ' + e.message); await sleep(400); server = await this.device.gatt.connect(); }
     const svc = await server.getPrimaryService(SERVICE);
     this.chars = {
       pass: await svc.getCharacteristic(CH_PASS),
@@ -368,7 +386,7 @@ async function connect(demo, showAll) {
 async function apply(changes, check) {
   try {
     await dev.change(changes);
-    await sleep(900);
+    await sleep(500);
     st = await dev.status(); pending = null; render();
     if (check) {
       const got = st[check.key];
@@ -443,6 +461,10 @@ async function preset(name, want, btn) {
     adjust(st.mode === 2 ? 'cool' : st.mode === 6 ? 'dry' : 'heat', d);
   });
   document.addEventListener('visibilitychange', () => { if (!document.hidden && dev) refresh(); });
+  // Auto-connect on open when login and a saved thermostat are available.
+  if ('bluetooth' in navigator && load('et_email') && load('et_pw') && load('et_dev') && navigator.bluetooth.getDevices) {
+    new EasyTouch('', '').remembered().then(ok => { if (ok) connect(false); });
+  }
 })();
 </script>
 </body>

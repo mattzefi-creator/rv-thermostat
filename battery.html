@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#14181d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>RV Battery</title>
+<style>
+/* Layout: one column phone app. Charge on top, power flow, cells, temperatures, status, diagnostics. */
+:root {
+  --bg: #eef1f4;
+  --panel: #ffffff;
+  --ink: #15191e;
+  --muted: #5f6b77;
+  --line: #d5dbe1;
+  --track: #e3e8ed;
+  --chg: #1f7a4d;
+  --chg-soft: #dcf1e5;
+  --dis: #1c6fd1;
+  --dis-soft: #dde9fa;
+  --warn: #9a5b00;
+  --warn-soft: #fbedd2;
+  --bad: #b42318;
+  --bad-soft: #fde4e1;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #101317; --panel: #1a1f25; --ink: #e9edf1; --muted: #93a0ad; --line: #2c343d; --track: #252c34;
+    --chg: #4cc38a; --chg-soft: #13301f; --dis: #5aa2ff; --dis-soft: #15263c;
+    --warn: #f0b44c; --warn-soft: #36290f; --bad: #ff6b5e; --bad-soft: #3a1714;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink); font: 16px/1.45 var(--font);
+  padding-top: max(12px, env(safe-area-inset-top, 0px));
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+main { max-width: 460px; margin: 0 auto; display: grid; gap: 14px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+h1 { font-size: 1.05rem; margin: 0; letter-spacing: .01em; }
+h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
+.pill { font-size: .78rem; padding: 4px 10px; border-radius: 999px; background: var(--line); color: var(--muted); white-space: nowrap; }
+.pill.on { background: var(--chg-soft); color: var(--chg); }
+.pill.demo { background: var(--warn-soft); color: var(--warn); }
+button { font: inherit; color: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); padding: 10px 14px; min-height: 44px; }
+button:focus-visible, select:focus-visible { outline: 3px solid var(--dis); outline-offset: 2px; }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 600; }
+label { display: grid; gap: 4px; font-size: .85rem; color: var(--muted); }
+select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-height: 44px; width: 100%; }
+.stack { display: grid; gap: 12px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.row > * { flex: 1 1 auto; }
+.note { font-size: .85rem; color: var(--muted); margin: 0; }
+.note strong { color: var(--ink); }
+.linkbar { justify-content: space-between; padding: 10px 12px 10px 16px; }
+.linkbar span { flex: 1 1 140px; font-size: .92rem; }
+.linkbar button { flex: 0 0 auto; }
+
+/* charge */
+.soc { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 8px; }
+.big { font-size: 4.2rem; font-weight: 300; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.big sup { font-size: 1.6rem; vertical-align: top; position: relative; top: .5rem; margin-left: 2px; }
+.state { text-align: right; font-size: .9rem; color: var(--muted); }
+.state b { display: block; font-size: 1.05rem; color: var(--ink); }
+.state b.chg { color: var(--chg); }
+.state b.dis { color: var(--dis); }
+.bar { height: 14px; border-radius: 999px; background: var(--track); overflow: hidden; }
+.bar i { display: block; height: 100%; width: 0; background: var(--chg); border-radius: 999px; transition: width .4s; }
+.bar.low i { background: var(--warn); }
+.bar.crit i { background: var(--bad); }
+.stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.stat { background: var(--bg); border-radius: 10px; padding: 10px; min-width: 0; }
+.stat small { display: block; font-size: .74rem; color: var(--muted); }
+.stat span { font-size: 1.25rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stat span.chg { color: var(--chg); }
+.stat span.dis { color: var(--dis); }
+.time { font-size: .95rem; }
+.time b { font-variant-numeric: tabular-nums; }
+
+/* cells */
+.cells { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+.cell { background: var(--bg); border-radius: 10px; padding: 6px 8px; border: 2px solid transparent; min-width: 0; }
+.cell small { display: block; font-size: .72rem; color: var(--muted); white-space: nowrap; }
+.cell span { display: block; font-size: 1rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cell.hi { border-color: var(--chg); }
+.cell.lo { border-color: var(--dis); }
+.cell.bal { background: var(--warn-soft); }
+.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .78rem; color: var(--muted); }
+.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 2px solid; }
+
+/* list rows */
+.kv { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; margin: 0; font-size: .95rem; }
+.kv dt { color: var(--muted); }
+.kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; font-weight: 500; }
+.ok { color: var(--chg); }
+.off { color: var(--bad); }
+.alert { border-radius: 10px; padding: 10px 12px; font-size: .9rem; background: var(--bad-soft); color: var(--bad); }
+.alert.warn { background: var(--warn-soft); color: var(--warn); }
+
+details summary { cursor: pointer; color: var(--muted); font-size: .85rem; min-height: 32px; display: flex; align-items: center; }
+pre { font: .75rem/1.4 var(--mono); background: var(--bg); border-radius: 8px; padding: 10px; overflow-x: auto; max-height: 260px; margin: 8px 0 0; white-space: pre-wrap; word-break: break-all; }
+.log { max-height: 160px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: .9rem; max-width: calc(100% - 32px); box-shadow: 0 6px 20px rgb(0 0 0 / .2); }
+@media (prefers-reduced-motion: no-preference) { .busy { animation: pulse 1s ease-in-out infinite alternate; } @keyframes pulse { to { opacity: .55; } } }
+@media (prefers-reduced-motion: reduce) { .bar i { transition: none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>RV Battery</h1>
+    <span id="conn" class="pill">Not connected</span>
+  </header>
+
+  <!-- Connect -->
+  <section id="setup" class="panel stack">
+    <h2>Connect to battery</h2>
+    <p id="nobt" class="note" hidden>This browser can't use Bluetooth. On iPhone, open this page in the free <strong>Bluefy</strong> browser. On Android or a Mac, use <strong>Chrome</strong>. You can still try the demo below.</p>
+    <p class="note">Close the WattCycle app first, because the battery accepts one Bluetooth connection at a time. Watt Cycle batteries usually show up with a name starting with <strong>WT</strong>.</p>
+    <div class="row">
+      <button id="btnConnect" class="primary">Connect</button>
+      <button id="btnDemo">Try demo</button>
+    </div>
+    <p id="autoMsg" class="note" hidden>Connecting to your battery…</p>
+    <details>
+      <summary>Battery not found?</summary>
+      <p class="note">Tap below to see every nearby Bluetooth device, then pick yours.</p>
+      <button id="btnAll">Show all nearby devices</button>
+    </details>
+    <pre id="setupLog" class="log" hidden></pre>
+  </section>
+
+  <!-- Dashboard -->
+  <section id="dash" class="stack" hidden>
+    <div id="linkBar" class="panel row linkbar" hidden>
+      <span id="linkMsg">Not connected</span>
+      <button id="btnLink" class="primary">Connect</button>
+    </div>
+
+    <div id="alerts" class="stack" hidden></div>
+
+    <div class="panel stack">
+      <div class="soc">
+        <div class="big" aria-label="State of charge"><span id="soc">--</span><sup>%</sup></div>
+        <div class="state">Right now<b id="flow">--</b></div>
+      </div>
+      <div id="socBar" class="bar" role="progressbar" aria-label="State of charge" aria-valuemin="0" aria-valuemax="100"><i></i></div>
+      <div class="stats">
+        <div class="stat"><small>Voltage</small><span id="volt">--</span></div>
+        <div class="stat"><small>Current</small><span id="amps">--</span></div>
+        <div class="stat"><small>Power</small><span id="watts">--</span></div>
+      </div>
+      <p class="note time" id="timeLeft">--</p>
+    </div>
+
+    <div class="panel">
+      <h2>Capacity</h2>
+      <dl class="kv">
+        <dt>Remaining</dt><dd id="remain">--</dd>
+        <dt>Full capacity</dt><dd id="design">--</dd>
+        <dt>Stored energy</dt><dd id="energy">--</dd>
+        <dt>Health</dt><dd id="soh">--</dd>
+        <dt>Cycles</dt><dd id="cycles">--</dd>
+      </dl>
+    </div>
+
+    <div class="panel stack">
+      <h2 id="cellsTitle">Cells</h2>
+      <div id="cells" class="cells"></div>
+      <div class="legend">
+        <span><i style="border-color:var(--chg)"></i>Highest</span>
+        <span><i style="border-color:var(--dis)"></i>Lowest</span>
+        <span><i style="border-color:var(--warn);background:var(--warn-soft)"></i>Balancing</span>
+        <span id="cellSpread">Spread --</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Temperatures</h2>
+      <dl id="temps" class="kv"></dl>
+    </div>
+
+    <div class="panel">
+      <h2>Switches</h2>
+      <dl class="kv">
+        <dt>Charging allowed</dt><dd id="fetC">--</dd>
+        <dt>Discharging allowed</dt><dd id="fetD">--</dd>
+        <dt>Protection code</dt><dd id="prob">--</dd>
+      </dl>
+    </div>
+
+    <div class="panel stack">
+      <div class="row">
+        <button id="btnRefresh">Refresh</button>
+        <button id="btnDisconnect">Disconnect</button>
+      </div>
+      <label>Temperature units
+        <select id="units">
+          <option value="F">Fahrenheit</option>
+          <option value="C">Celsius</option>
+        </select>
+      </label>
+      <p class="note" id="updated">Not updated yet</p>
+      <details>
+        <summary>Battery info and diagnostics</summary>
+        <dl class="kv" style="margin-top:8px">
+          <dt>Name</dt><dd id="devName">--</dd>
+          <dt>Firmware</dt><dd id="fw">--</dd>
+          <dt>Maker code</dt><dd id="mfr">--</dd>
+          <dt>Serial</dt><dd id="serial">--</dd>
+        </dl>
+        <pre id="raw">No data yet</pre>
+        <pre id="log" class="log"></pre>
+      </details>
+    </div>
+  </section>
+</main>
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script id="protocol">
+'use strict';
+// ---------- Protocol ----------
+// Watt Cycle packs use a TDT smart BMS. Frame layout and field offsets follow the
+// community documentation in aiobmsble (docs/tdt_bms.md), checked against captured frames.
+//   frame: [head, ver, 0x01, 0x03, err, cmd, lenHi, lenLo, data..., crcHi, crcLo, 0x0D]
+// The app only sends read commands (0x8C live data, 0x8D status, 0x92 device info).
+const TDT = {
+  SERVICES: [0xfff0, 0xffe0],
+  CMD_LIVE: 0x8c, CMD_STATUS: 0x8d, CMD_INFO: 0x92,
+  TAIL: 0x0d,
+
+  crc(bytes) {
+    let crc = 0xffff;
+    for (const b of bytes) {
+      crc ^= b;
+      for (let i = 0; i < 8; i++) crc = crc & 1 ? (crc >>> 1) ^ 0xa001 : crc >>> 1;
+    }
+    return crc;
+  },
+
+  command(cmd, head = 0x7e) {
+    const f = [head, 0x00, 0x01, 0x03, 0x00, cmd, 0x00, 0x00];
+    const c = TDT.crc(f);
+    return new Uint8Array([...f, c >> 8, c & 0xff, TDT.TAIL]);
+  },
+
+  // Validate a complete frame. Returns { cmd, data } or throws.
+  // Some firmware sends a one-byte CRC on 0x8D replies; that case is let through.
+  frame(bytes) {
+    const f = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    if (f.length < 11 || f[0] !== 0x7e) throw new Error('Bad frame start');
+    const len = (f[6] << 8) | f[7];
+    if (f.length !== 11 + len) throw new Error('Bad frame length');
+    if (f[f.length - 1] !== TDT.TAIL) throw new Error('Bad frame end');
+    if (f[4] !== 0) throw new Error('Battery returned error ' + f[4]);
+    const got = (f[f.length - 3] << 8) | f[f.length - 2];
+    const want = TDT.crc(f.subarray(0, f.length - 3));
+    if (got !== want && !(f[5] === TDT.CMD_STATUS && got <= 0xff)) throw new Error('Bad checksum');
+    return { cmd: f[5], data: f.subarray(8, 8 + len), crcOk: got === want };
+  },
+
+  u16: (d, i) => (d[i] << 8) | d[i + 1],
+  u32: (d, i) => ((d[i] << 24) >>> 0) + (d[i + 1] << 16) + (d[i + 2] << 8) + d[i + 3],
+  // Signed current: bit 15 = negative (discharging), bit 14 = value is in tenths of an amp.
+  amps(x) {
+    let a = x & 0x3fff;
+    if (x & 0x4000) a /= 10;
+    return x & 0x8000 ? -a : a;
+  },
+  tempC: x => Math.round(x - 2730) / 10,
+
+  // Firmware 1.x reports capacity in whole Ah; older firmware in tenths.
+  wholeAh(fw) { return /1\.\d+\s*$/.test(fw || ''); },
+
+  live(d, fw) {
+    const n = d[0];
+    const cells = [];
+    for (let i = 0; i < n; i++) cells.push(TDT.u16(d, 1 + 2 * i) / 1000);
+    const t = d[1 + 2 * n];
+    const temps = [];
+    for (let j = 0; j < t; j++) temps.push(TDT.tempC(TDT.u16(d, 2 + 2 * n + 2 * j)));
+    const c = 2 + 2 * n + 2 * t;
+    if (d.length < c + 14) throw new Error('Live data too short');
+    const ahDiv = TDT.wholeAh(fw) ? 1 : 10;
+    const out = {
+      cells, temps,
+      current: TDT.amps(TDT.u16(d, c)),
+      voltage: TDT.u16(d, c + 2) / 100,
+      remainAh: TDT.u16(d, c + 4) / ahDiv,
+      cycles: TDT.u16(d, c + 8),
+      designAh: TDT.u16(d, c + 10) / ahDiv,
+      soc: TDT.u16(d, c + 12),
+      soh: d.length >= c + 16 ? TDT.u16(d, c + 14) : null,
+    };
+    if (out.soh === 0) out.soh = null;
+    return out;
+  },
+
+  status(d) {
+    const n = d[0], t = d[n + 1], k = n + t;
+    if (d.length < k + 9) throw new Error('Status data too short');
+    const fets = d[k + 8];
+    const bal = [];
+    const bytes = Math.ceil(n / 8);
+    if (d.length >= k + 15 + bytes) {
+      for (let q = 0; q < bytes; q++)
+        for (let i = 0; i < 8; i++) if (d[k + 15 + q] >> i & 1) bal.push(8 * q + i);
+    }
+    return {
+      problem: (d[k + 6] << 8) | d[k + 7],
+      chargeOn: !!(fets & 0x02),
+      dischargeOn: !!(fets & 0x04),
+      balancing: bal.filter(i => i < n),
+    };
+  },
+
+  text(d, from, to) {
+    const s = d.subarray(from, to);
+    const end = s.indexOf(0);
+    return new TextDecoder().decode(end < 0 ? s : s.subarray(0, end)).trim();
+  },
+  info(d) {
+    return { firmware: TDT.text(d, 0, 20), maker: TDT.text(d, 20, 40), serial: TDT.text(d, 40, 60) };
+  },
+};
+if (typeof module !== 'undefined') module.exports = TDT;
+</script>
+
+<script>
+'use strict';
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const $ = id => document.getElementById(id);
+const write = (ch, bytes) => ch.writeValueWithoutResponse ? ch.writeValueWithoutResponse(bytes) : ch.writeValue(bytes);
+const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + ' timed out')), ms))]);
+const hex = b => Array.from(b, x => x.toString(16).padStart(2, '0')).join(' ');
+const uuid = n => '0000' + n.toString(16).padStart(4, '0') + '-0000-1000-8000-00805f9b34fb';
+
+function log(msg) {
+  const line = new Date().toLocaleTimeString() + '  ' + msg;
+  const el = $('log'); el.textContent = (line + '\n' + el.textContent).slice(0, 8000);
+}
+function store(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} }
+function load(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
+
+// Real battery over Web Bluetooth
+class Battery {
+  constructor() { this.q = Promise.resolve(); this.buf = []; this.waiter = null; this.head = +load('wc_head') || 0x7e; this.raw = {}; }
+  run(fn) { const p = this.q.then(fn, fn); this.q = p.catch(() => {}); return p; }
+  use(d) {
+    this.device = d;
+    d.addEventListener('gattserverdisconnected', () => { this.rx = null; log('Bluetooth disconnected'); onLink(false); });
+  }
+  async remembered() {
+    const id = load('wc_dev');
+    if (!id || !navigator.bluetooth.getDevices) return false;
+    try {
+      const all = await navigator.bluetooth.getDevices();
+      const d = all.find(x => x.id === id);
+      if (!d) { log('Saved battery not in the browser\'s list'); return false; }
+      this.use(d); log('Reusing saved battery "' + (d.name || '') + '"');
+      if (d.watchAdvertisements) {
+        const ac = new AbortController();
+        try {
+          await withTimeout(new Promise(res => {
+            d.addEventListener('advertisementreceived', res, { once: true });
+            d.watchAdvertisements({ signal: ac.signal }).catch(() => {});
+          }), 8000, 'Waiting for battery');
+          log('Battery is in range');
+        } catch (e) { log(e.message); } finally { ac.abort(); }
+      }
+      return true;
+    } catch (e) { log('Saved-device lookup failed: ' + e.message); return false; }
+  }
+  async pick(showAll, auto) {
+    if (auto) { if (await this.remembered()) return; throw new Error('No saved battery'); }
+    const optionalServices = [...TDT.SERVICES, 0xfffa].map(uuid);
+    this.use(await navigator.bluetooth.requestDevice(showAll
+      ? { acceptAllDevices: true, optionalServices }
+      : { filters: [{ namePrefix: 'WT' }, { namePrefix: 'XDZN' }, { namePrefix: 'HS' }, { services: [uuid(0xfff0)] }], optionalServices }));
+    store('wc_dev', this.device.id);
+    log('Picked "' + (this.device.name || '(no name)') + '" id ' + this.device.id);
+  }
+  async ensure() {
+    if (this.rx && this.device.gatt.connected) return;
+    log('Connecting…');
+    const server = await withTimeout(this.device.gatt.connect(), 12000, 'Bluetooth connect');
+    let svc = null, sid = 0;
+    for (const s of TDT.SERVICES) {
+      try { svc = await withTimeout(server.getPrimaryService(uuid(s)), 6000, 'Service lookup'); sid = s; break; } catch (e) { log('No service ' + s.toString(16)); }
+    }
+    if (!svc) throw new Error('This device is not a supported battery');
+    if (sid === 0xfff0) {
+      // Some packs want "HiLink" written to FFFA before they answer.
+      try {
+        const cfg = await svc.getCharacteristic(uuid(0xfffa));
+        await cfg.writeValue(new TextEncoder().encode('HiLink'));
+        const r = await cfg.readValue();
+        log('Unlock reply ' + r.getUint8(0));
+      } catch (e) { log('No unlock step'); }
+      this.rx = await svc.getCharacteristic(uuid(0xfff1));
+      this.tx = await svc.getCharacteristic(uuid(0xfff2));
+    } else {
+      this.rx = this.tx = await svc.getCharacteristic(uuid(0xffe1));
+    }
+    this.rx.addEventListener('characteristicvaluechanged', e => this.onData(new Uint8Array(e.target.value.buffer)));
+    await this.rx.startNotifications();
+    log('Listening on ' + sid.toString(16));
+    onLink(true);
+    if (!this.info) {
+      try { this.info = TDT.info(await this.ask(TDT.CMD_INFO)); log('Firmware ' + this.info.firmware); }
+      catch (e) { log('Info failed: ' + e.message); this.info = { firmware: '', maker: '', serial: '' }; }
+    }
+  }
+  // Notifications arrive in chunks; rebuild a full frame from its length field.
+  onData(chunk) {
+    if (chunk[0] === 0x7e && this.buf.length && this.buf.length >= this.expect) this.buf = [];
+    if (chunk[0] === 0x7e && !this.buf.length) this.expect = 11 + ((chunk[6] << 8) | chunk[7]);
+    if (!this.buf.length && chunk[0] !== 0x7e) return;
+    this.buf.push(...chunk);
+    if (this.buf.length < this.expect) return;
+    const bytes = new Uint8Array(this.buf.slice(0, this.expect)); this.buf = [];
+    try {
+      const f = TDT.frame(bytes);
+      this.raw[f.cmd.toString(16)] = hex(bytes);
+      if (this.waiter && this.waiter.cmd === f.cmd) { const w = this.waiter; this.waiter = null; w.res(f.data); }
+    } catch (e) { log('Dropped frame: ' + e.message + ' ' + hex(bytes)); }
+  }
+  async askOnce(cmd, head) {
+    this.buf = [];
+    const p = new Promise((res, rej) => { this.waiter = { cmd, res }; });
+    await write(this.tx, TDT.command(cmd, head));
+    return withTimeout(p, 3000, 'Reply ' + cmd.toString(16)).finally(() => { this.waiter = null; });
+  }
+  // Some packs only answer commands that start with 0x1E; remember whichever works.
+  async ask(cmd) {
+    try { return await this.askOnce(cmd, this.head); }
+    catch (e) {
+      const alt = this.head === 0x7e ? 0x1e : 0x7e;
+      log(e.message + ', trying header ' + alt.toString(16));
+      const d = await this.askOnce(cmd, alt);
+      this.head = alt; store('wc_head', String(alt));
+      return d;
+    }
+  }
+  read() {
+    return this.run(async () => {
+      await this.ensure();
+      const live = TDT.live(await this.ask(TDT.CMD_LIVE), this.info.firmware);
+      let status = null;
+      try { status = TDT.status(await this.ask(TDT.CMD_STATUS)); } catch (e) { log('Status failed: ' + e.message); }
+      return { ...live, ...(status || {}), info: this.info, name: this.device.name || '', raw: this.raw };
+    });
+  }
+  disconnect() { try { this.device && this.device.gatt.disconnect(); } catch (e) {} }
+}
+
+// Simulated 12V 100Ah pack for trying the app.
+class Demo {
+  constructor() { this.soc = 78; this.t = 0; }
+  async pick() {}
+  async read() {
+    await sleep(250); onLink(true);
+    this.t++;
+    const current = Math.round((Math.sin(this.t / 6) * 18 - 4) * 10) / 10;
+    this.soc = Math.max(5, Math.min(100, this.soc + current / 400));
+    const base = 3.25 + this.soc / 1000;
+    const cells = [0, 0.004, -0.003, 0.002].map(o => Math.round((base + o) * 1000) / 1000);
+    return {
+      cells, temps: [21.4, 23.9, 19.8, 20.1], current, voltage: Math.round(cells.reduce((a, b) => a + b) * 100) / 100,
+      remainAh: Math.round(this.soc * 10) / 10, designAh: 100, cycles: 47, soc: Math.round(this.soc), soh: 100,
+      problem: 0, chargeOn: true, dischargeOn: true, balancing: current > 5 ? [1] : [],
+      info: { firmware: 'demo', maker: 'demo', serial: '0000' }, name: 'Demo battery', raw: { demo: true },
+    };
+  }
+  disconnect() {}
+}
+
+// ---------- App state & UI ----------
+let dev = null, st = null, pollTimer = null, linked = false;
+
+function onLink(up, msg) {
+  linked = up;
+  const c = $('conn');
+  if (dev instanceof Demo) { c.textContent = 'Demo'; c.className = 'pill demo'; $('linkBar').hidden = true; return; }
+  c.textContent = up ? 'Connected' : 'Not connected'; c.className = 'pill' + (up ? ' on' : '');
+  $('linkBar').hidden = up;
+  if (!up) $('linkMsg').textContent = msg || 'Not connected. Showing the last reading.';
+}
+
+let toastT;
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 3500); }
+
+const units = () => load('wc_units') || 'F';
+const temp = c => units() === 'F' ? Math.round(c * 9 / 5 + 32) + '°F' : c.toFixed(1) + '°C';
+const fmtA = a => (Math.abs(a) < 10 ? Math.abs(a).toFixed(1) : Math.round(Math.abs(a))) + ' A';
+function fmtDur(h) {
+  if (!isFinite(h) || h <= 0) return '';
+  if (h > 99) return 'over 99 hours';
+  const hr = Math.floor(h), min = Math.round((h - hr) * 60);
+  if (hr >= 10) return `${Math.round(h)} hours`;
+  return hr ? `${hr} h ${min} min` : `${min} min`;
+}
+
+// Treat tiny readings as idle so the label does not flicker.
+const IDLE_A = 0.3;
+
+function render() {
+  if (!st) return;
+  const s = st;
+  $('soc').textContent = s.soc;
+  const bar = $('socBar');
+  bar.firstElementChild.style.width = Math.max(0, Math.min(100, s.soc)) + '%';
+  bar.className = 'bar' + (s.soc <= 10 ? ' crit' : s.soc <= 25 ? ' low' : '');
+  bar.setAttribute('aria-valuenow', s.soc);
+
+  const charging = s.current > IDLE_A, draining = s.current < -IDLE_A;
+  const flow = $('flow');
+  flow.textContent = charging ? 'Charging' : draining ? 'In use' : 'Resting';
+  flow.className = charging ? 'chg' : draining ? 'dis' : '';
+  $('volt').textContent = s.voltage.toFixed(2) + ' V';
+  const amps = $('amps'), watts = $('watts');
+  amps.textContent = (charging ? '+' : draining ? '−' : '') + fmtA(s.current);
+  watts.textContent = Math.round(Math.abs(s.current * s.voltage)) + ' W';
+  amps.className = watts.className = charging ? 'chg' : draining ? 'dis' : '';
+
+  const tl = $('timeLeft');
+  if (draining) {
+    const d = fmtDur(s.remainAh / -s.current);
+    tl.innerHTML = d ? `About <b>${d}</b> left at this rate` : '';
+  } else if (charging) {
+    const d = fmtDur(Math.max(0, s.designAh - s.remainAh) / s.current);
+    tl.innerHTML = s.soc >= 100 ? 'Full' : d ? `About <b>${d}</b> to full at this rate` : '';
+  } else tl.textContent = 'No load right now';
+
+  $('remain').textContent = s.remainAh.toFixed(1) + ' Ah';
+  $('design').textContent = s.designAh.toFixed(0) + ' Ah';
+  $('energy').textContent = (s.remainAh * s.voltage / 1000).toFixed(2) + ' kWh';
+  $('soh').textContent = s.soh != null ? s.soh + '%' : '--';
+  $('cycles').textContent = s.cycles;
+
+  // cells
+  const cells = s.cells || [];
+  const hi = Math.max(...cells), lo = Math.min(...cells);
+  const bal = new Set(s.balancing || []);
+  $('cellsTitle').textContent = `Cells (${cells.length}), volts`;
+  $('cells').innerHTML = cells.map((v, i) => {
+    const cls = ['cell', cells.length > 1 && v === hi && hi !== lo ? 'hi' : '', cells.length > 1 && v === lo && hi !== lo ? 'lo' : '', bal.has(i) ? 'bal' : ''].join(' ');
+    return `<div class="${cls}"><small>Cell ${i + 1}</small><span>${v.toFixed(3)}</span></div>`;
+  }).join('');
+  const spread = cells.length ? Math.round((hi - lo) * 1000) : 0;
+  $('cellSpread').textContent = `Spread ${spread} mV`;
+
+  // temperatures: first two sensors are on the BMS board, the rest are on the cells
+  const tnames = i => i === 0 ? 'BMS board' : i === 1 ? 'Power switch' : s.temps.length > 3 ? 'Cell sensor ' + (i - 1) : 'Cells';
+  $('temps').innerHTML = (s.temps || []).map((c, i) => `<dt>${tnames(i)}</dt><dd>${temp(c)}</dd>`).join('');
+
+  const yesNo = (el, v) => { el.textContent = v == null ? '--' : v ? 'On' : 'Off'; el.className = v == null ? '' : v ? 'ok' : 'off'; };
+  yesNo($('fetC'), s.chargeOn); yesNo($('fetD'), s.dischargeOn);
+  $('prob').textContent = s.problem == null ? '--' : s.problem ? '0x' + s.problem.toString(16).padStart(4, '0') : 'None';
+
+  // alerts
+  const alerts = [];
+  if (s.chargeOn === false) alerts.push(['', 'Charging is switched off by the battery. It may be too cold, too hot, or full.']);
+  if (s.dischargeOn === false) alerts.push(['', 'Power output is switched off by the battery. It may be empty, too cold, or protecting itself.']);
+  if (s.problem) alerts.push(['warn', `The battery reports protection code 0x${s.problem.toString(16).padStart(4, '0')}.`]);
+  const minT = Math.min(...(s.temps || []).slice(2));
+  if (isFinite(minT) && minT <= 0 && s.current > IDLE_A) alerts.push(['', `Cells are at ${temp(minT)}. Charging LiFePO4 at or below freezing can damage it.`]);
+  else if (isFinite(minT) && minT <= 3) alerts.push(['warn', `Cells are near freezing (${temp(minT)}). Charging will be limited.`]);
+  if (spread >= 100) alerts.push(['warn', `Cells are ${spread} mV apart. A long, full charge lets the battery rebalance.`]);
+  if (s.soc <= 10) alerts.push(['', `Battery is at ${s.soc}%. Charge soon.`]);
+  $('alerts').hidden = !alerts.length;
+  $('alerts').innerHTML = alerts.map(([c, m]) => `<div class="alert ${c}">${m}</div>`).join('');
+
+  $('devName').textContent = s.name || '--';
+  $('fw').textContent = s.info?.firmware || '--';
+  $('mfr').textContent = s.info?.maker || '--';
+  $('serial').textContent = s.info?.serial || '--';
+  $('raw').textContent = JSON.stringify(s.raw || {}, null, 1);
+  $('updated').textContent = (s.cached ? 'Last reading ' : 'Updated ') + new Date(s.at || Date.now()).toLocaleString([], { hour: 'numeric', minute: '2-digit', second: s.cached ? undefined : '2-digit', month: 'short', day: 'numeric' });
+}
+
+function saveLast() { if (st && !(dev instanceof Demo)) { const { raw, ...rest } = st; store('wc_last', JSON.stringify(rest)); } }
+function got(s) { st = s; st.at = Date.now(); render(); saveLast(); }
+
+async function refresh() {
+  if (!dev || (dev instanceof Demo && !linked)) return;
+  try { got(await dev.read()); }
+  catch (e) { log('Read failed: ' + e.message); onLink(false, 'Lost the connection. ' + hint(e)); }
+}
+
+function hint(e) {
+  const m = String(e && e.message || e);
+  if (/cancel/i.test(m)) return 'No battery was picked.';
+  if (/GATT|disconnect|network|timed out/i.test(m)) return 'Move closer, close the WattCycle app, and tap Connect.';
+  return m;
+}
+
+function startPolling() { stopPolling(); pollTimer = setInterval(() => { if (!document.hidden) refresh(); }, dev instanceof Demo ? 2000 : 5000); }
+function stopPolling() { clearInterval(pollTimer); }
+function showDash() { $('setup').hidden = true; $('dash').hidden = false; }
+
+async function connect(demo, showAll, auto) {
+  dev = demo ? new Demo() : new Battery();
+  const btn = demo ? $('btnDemo') : showAll ? $('btnAll') : $('dash').hidden ? $('btnConnect') : $('btnLink');
+  btn.disabled = true; btn.classList.add('busy');
+  if (!demo && !$('dash').hidden) $('linkMsg').textContent = 'Connecting…';
+  try {
+    await dev.pick(showAll, auto);
+    got(await dev.read());
+    showDash(); startPolling();
+  } catch (e) {
+    log('Connect failed: ' + e.message);
+    if (auto) { onLink(false, 'Tap anywhere to connect.'); armTapToConnect(); return; }
+    toast(hint(e)); onLink(false, 'Couldn\'t connect. ' + hint(e));
+    $('setupLog').hidden = false; $('setupLog').textContent = $('log').textContent;
+  } finally { btn.disabled = false; btn.classList.remove('busy'); }
+}
+
+// iPhone only lets a page start Bluetooth from a tap, so the first tap anywhere connects.
+let tapArmed = false;
+function armTapToConnect() {
+  if (tapArmed || !('bluetooth' in navigator) || !load('wc_dev')) return;
+  tapArmed = true;
+  const go = e => {
+    if (linked || e.target.closest('select, #btnLink, #btnAll, #btnDemo, #btnConnect, details')) return;
+    document.removeEventListener('click', go, true); tapArmed = false;
+    e.stopPropagation(); e.preventDefault();
+    connect(false);
+  };
+  document.addEventListener('click', go, true);
+}
+
+// Open straight to the dashboard with the last reading once a battery has been used.
+function showLastOrSetup() {
+  if (!load('wc_dev')) return false;
+  try { const last = load('wc_last'); st = last ? { ...JSON.parse(last), cached: true } : null; } catch (e) { st = null; }
+  if (!st) return false;
+  showDash(); render(); onLink(false);
+  return true;
+}
+
+(function init() {
+  if (!('bluetooth' in navigator)) { $('nobt').hidden = false; $('btnConnect').disabled = true; $('btnAll').disabled = true; }
+  $('btnConnect').onclick = () => connect(false);
+  $('btnLink').onclick = () => connect(false);
+  $('btnAll').onclick = () => connect(false, true);
+  $('btnDemo').onclick = () => connect(true);
+  $('btnRefresh').onclick = refresh;
+  $('btnDisconnect').onclick = () => {
+    stopPolling(); dev && dev.disconnect(); dev = null; st = null; onLink(false);
+    $('dash').hidden = true; $('setup').hidden = false;
+  };
+  $('units').value = units();
+  $('units').onchange = () => { store('wc_units', $('units').value); render(); };
+  document.addEventListener('visibilitychange', () => { if (!document.hidden && dev) refresh(); });
+
+  const onDash = showLastOrSetup();
+  if ('bluetooth' in navigator && load('wc_dev') && navigator.bluetooth.getDevices) {
+    if (onDash) $('linkMsg').textContent = 'Connecting…'; else $('autoMsg').hidden = false;
+    connect(false, false, true).finally(() => { $('autoMsg').hidden = true; });
+  } else if (onDash) {
+    onLink(false, 'Tap anywhere to connect.'); armTapToConnect();
+  }
+})();
+</script>
+</body>
+</html>

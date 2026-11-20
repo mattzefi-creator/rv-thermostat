@@ -427,7 +427,8 @@ const TDT = {
     for (let j = 0; j < t; j++) temps.push(TDT.tempC(TDT.u16(d, 2 + 2 * n + 2 * j)));
     const c = 2 + 2 * n + 2 * t;
     if (d.length < c + 14) throw new Error('Live data too short');
-    const ahDiv = TDT.wholeAh(fw) ? 1 : 10;
+    // Whole-Ah firmware never reports a 4-digit design capacity; tenths firmware always does for 100Ah+.
+    const ahDiv = TDT.wholeAh(fw) && TDT.u16(d, c + 10) < 1000 ? 1 : 10;
     const out = {
       cells, temps,
       current: TDT.amps(TDT.u16(d, c)),
@@ -502,7 +503,9 @@ class Battery {
     if (!id || !navigator.bluetooth.getDevices) return false;
     try {
       const all = await navigator.bluetooth.getDevices();
-      const d = all.find(x => x.id === id);
+      const name = load('wc_name');
+      const d = all.find(x => x.id === id) || (name && all.find(x => x.name === name))
+        || all.find(x => /^(XDZN|WT)/.test(x.name || ''));
       if (!d) { log('Saved battery not in the browser\'s list'); return false; }
       this.use(d); log('Reusing saved battery "' + (d.name || '') + '"');
       if (d.watchAdvertisements) {
@@ -524,7 +527,7 @@ class Battery {
     this.use(await navigator.bluetooth.requestDevice(showAll
       ? { acceptAllDevices: true, optionalServices }
       : { filters: [{ namePrefix: 'WT' }, { namePrefix: 'XDZN' }, { namePrefix: 'HS' }, { services: [uuid(0xfff0)] }], optionalServices }));
-    store('wc_dev', this.device.id);
+    store('wc_dev', this.device.id); store('wc_name', this.device.name || null);
     log('Picked "' + (this.device.name || '(no name)') + '" id ' + this.device.id);
   }
   async ensure() {
@@ -537,21 +540,27 @@ class Battery {
     }
     if (!svc) throw new Error('This device is not a supported battery');
     if (sid === 0xfff0) {
-      // Some packs want "HiLink" written to FFFA before they answer.
-      try {
-        const cfg = await svc.getCharacteristic(uuid(0xfffa));
-        await cfg.writeValue(new TextEncoder().encode('HiLink'));
-        const r = await cfg.readValue();
-        log('Unlock reply ' + r.getUint8(0));
-      } catch (e) { log('No unlock step'); }
       this.rx = await svc.getCharacteristic(uuid(0xfff1));
       this.tx = await svc.getCharacteristic(uuid(0xfff2));
     } else {
       this.rx = this.tx = await svc.getCharacteristic(uuid(0xffe1));
     }
-    this.rx.addEventListener('characteristicvaluechanged', e => this.onData(new Uint8Array(e.target.value.buffer)));
-    await this.rx.startNotifications();
+    // One shared handler: the browser can hand back the same characteristic after a reconnect,
+    // and a second listener would feed every chunk in twice.
+    this.onNotify = this.onNotify || (e => this.onData(new Uint8Array(e.target.value.buffer)));
+    this.rx.addEventListener('characteristicvaluechanged', this.onNotify);
+    await withTimeout(this.rx.startNotifications(), 6000, 'Turning on notifications');
     log('Listening on ' + sid.toString(16));
+    if (sid === 0xfff0) {
+      // XDZN / WattCycle packs stay silent until "HiLink" is written to FFFA.
+      try {
+        const cfg = await svc.getCharacteristic(uuid(0xfffa));
+        const key = new TextEncoder().encode('HiLink');
+        await withTimeout(cfg.writeValueWithoutResponse ? cfg.writeValueWithoutResponse(key).catch(() => cfg.writeValue(key)) : cfg.writeValue(key), 4000, 'Unlock');
+        log('Sent unlock key');
+        await sleep(500);
+      } catch (e) { log('Unlock step skipped: ' + e.message); }
+    }
     onLink(true);
     if (!this.info) {
       try { this.info = TDT.info(await this.ask(TDT.CMD_INFO)); log('Firmware ' + this.info.firmware); }
@@ -982,9 +991,9 @@ function got(s) { st = s; st.at = Date.now(); addHist(s); render(); saveLast(); 
 let lostSince = 0;
 async function refresh() {
   if (!dev || (dev instanceof Demo && !linked)) return;
-  try { got(await dev.read()); lostSince = 0; }
+  try { got(await dev.read()); lostSince = 0; showDash(); }
   catch (e) {
-    log('Read failed: ' + e.message); onLink(false, 'Lost the connection. ' + hint(e));
+    log('Read failed: ' + e.message); onLink(false, 'Lost the battery. Retrying on its own every 20 seconds.');
     // During night watch, losing the battery for 3 minutes is itself worth waking up for.
     lostSince = lostSince || Date.now();
     if (watching && Date.now() - lostSince > 3 * MIN && Date.now() > snoozeUntil && !alarmLoop) {
@@ -1001,7 +1010,20 @@ function hint(e) {
   return m;
 }
 
-function startPolling() { stopPolling(); pollTimer = setInterval(() => { if (!document.hidden || watching) refresh(); }, dev instanceof Demo ? 2000 : 5000); }
+// Keep reading every 5 seconds. When the battery drops out, keep retrying every 20 seconds
+// without a tap, so it reconnects by itself when you come back in range.
+let lastTry = 0;
+function startPolling() {
+  stopPolling();
+  pollTimer = setInterval(() => {
+    if (document.hidden && !watching) return;
+    if (!linked && !(dev instanceof Demo)) {
+      if (Date.now() - lastTry < 20000) return;
+      lastTry = Date.now(); $('linkMsg').textContent = 'Reconnecting…';
+    }
+    refresh();
+  }, dev instanceof Demo ? 2000 : 5000);
+}
 function stopPolling() { clearInterval(pollTimer); }
 function showDash() { $('setup').hidden = true; $('dash').hidden = false; }
 
@@ -1018,7 +1040,11 @@ async function connect(demo, showAll, auto) {
     showDash(); startPolling();
   } catch (e) {
     log('Connect failed: ' + e.message);
-    if (auto) { onLink(false, 'Tap anywhere to connect.'); armTapToConnect(); return; }
+    if (auto) {
+      onLink(false, dev.device ? 'Battery not in range yet. Retrying…' : 'Tap anywhere to connect.');
+      if (dev.device) { lastTry = Date.now(); startPolling(); } else armTapToConnect();
+      return;
+    }
     toast(hint(e)); onLink(false, 'Couldn\'t connect. ' + hint(e));
     $('setupLog').hidden = false; $('setupLog').textContent = $('log').textContent;
   } finally { btn.disabled = false; btn.classList.remove('busy'); }

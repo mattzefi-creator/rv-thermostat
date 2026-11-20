@@ -183,6 +183,37 @@ select, input[type=time] { font: inherit; color: var(--ink); background: var(--s
 .switch input:checked::after { transform: translateX(18px); }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 
+/* big switches */
+.sw { display: flex; justify-content: space-between; align-items: center; gap: 12px; width: 100%; min-height: 76px; padding: 12px 14px 12px 18px; border-radius: 16px; text-align: left; font-size: 1.12rem; font-weight: 650; background: var(--critical-wash); box-shadow: inset 0 0 0 2px var(--critical); touch-action: manipulation; }
+.sw small { display: block; font-size: .8rem; font-weight: 400; color: var(--muted); margin-top: 2px; }
+.sw b { flex: 0 0 auto; min-width: 64px; text-align: center; font-size: 1.05rem; padding: 8px 14px; border-radius: 999px; background: var(--critical); color: #fff; }
+.sw[aria-pressed="true"] { background: var(--good-wash); box-shadow: inset 0 0 0 2px var(--good); }
+.sw[aria-pressed="true"] b { background: var(--good); }
+.sw.unknown { background: var(--soft); box-shadow: inset 0 0 0 1px var(--line); }
+.sw.unknown b { background: var(--axis); color: var(--ink); }
+
+/* confirm sheet */
+.sheet { position: fixed; inset: 0; z-index: 9; background: rgb(0 0 0 / .45); display: grid; align-items: end; }
+.sheet-card { background: var(--panel); border-radius: 22px 22px 0 0; padding: 22px 18px calc(18px + env(safe-area-inset-bottom, 0px)); max-width: 480px; width: 100%; margin: 0 auto; display: grid; gap: 12px; }
+.sheet-card h3 { margin: 0; font-size: 1.25rem; }
+.sheet-card p { margin: 0; color: var(--muted); font-size: .95rem; }
+.sheet-card .row button { min-height: 52px; }
+button.danger { background: var(--critical); color: #fff; box-shadow: none; font-weight: 650; }
+
+/* weather plan */
+.wx-status { font-size: .78rem; font-weight: 650; padding: 4px 10px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; background: var(--soft); }
+.wx-status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
+.wx-status.warning::before { background: var(--warning); }
+.wx-status.serious::before { background: var(--serious); }
+.tips { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.tips li { display: grid; grid-template-columns: 10px 1fr; gap: 10px; font-size: .92rem; line-height: 1.4; }
+.tips li::before { content: ""; width: 10px; height: 10px; border-radius: 50%; margin-top: 5px; background: var(--axis); }
+.tips li.good::before { background: var(--good); }
+.tips li.warning::before { background: var(--warning); }
+.tips li.serious::before { background: var(--serious); }
+.inline { display: flex; align-items: center; gap: 10px; font-size: .9rem; color: var(--ink); }
+.inline input { width: 110px; font: inherit; color: var(--ink); background: var(--soft); border: 0; border-radius: 10px; padding: 8px 10px; min-height: 40px; }
+
 details summary { cursor: pointer; color: var(--muted); font-size: .85rem; min-height: 32px; display: flex; align-items: center; }
 pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px; padding: 10px; overflow-x: auto; max-height: 260px; margin: 8px 0 0; white-space: pre-wrap; word-break: break-all; }
 .log { max-height: 160px; }
@@ -252,6 +283,12 @@ pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px;
       </div>
     </div>
 
+    <div class="panel stack" id="swPanel">
+      <div class="head" style="margin:0"><h2>Battery switches</h2></div>
+      <button id="swCharge" class="sw unknown" aria-pressed="false"><span>Charging<small>Solar, shore power and the alternator</small></span><b>--</b></button>
+      <button id="swOutput" class="sw unknown" aria-pressed="false"><span>Power output<small>Everything in the RV that runs on 12V</small></span><b>--</b></button>
+    </div>
+
     <section id="fc" class="fc idle" aria-live="polite">
       <div class="fc-top">
         <div class="badge" id="fcIcon"></div>
@@ -286,6 +323,24 @@ pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px;
       </div>
     </div>
 
+    <section class="panel stack" id="wxPanel">
+      <div class="head" style="margin:0"><h2>Weather plan</h2><span id="wxStatus" class="wx-status" hidden></span></div>
+      <div id="wxSetup" class="stack">
+        <p class="note">See tonight's low and tomorrow's sun, and whether you need to go easy on power. Your approximate location goes to Open-Meteo, a free weather service.</p>
+        <button id="btnLocate" class="primary">Use my location</button>
+      </div>
+      <div id="wxBody" class="stack" hidden>
+        <div class="tiles">
+          <div class="tile"><small>Tonight's low</small><span id="wxLow">--</span></div>
+          <div class="tile"><small>Below freezing</small><span id="wxFreeze">--</span></div>
+          <div class="tile"><small id="wxSunDay">Tomorrow's sun</small><span id="wxSun">--</span></div>
+        </div>
+        <ul id="wxTips" class="tips"></ul>
+        <label class="inline">Solar panels<input id="solar" type="number" inputmode="numeric" min="0" step="50" placeholder="none">watts</label>
+        <p class="note" id="wxNote"></p>
+      </div>
+    </section>
+
     <div class="tiles">
       <div class="tile"><small>Avg use, 30 min</small><span id="avgW">--</span></div>
       <div class="tile"><small>Stored</small><span id="energy">--</span></div>
@@ -306,11 +361,9 @@ pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px;
     </div>
 
     <div class="panel">
-      <div class="head"><h2>Temperatures and switches</h2></div>
+      <div class="head"><h2>Temperatures</h2></div>
       <dl id="temps" class="kv"></dl>
       <dl class="kv" style="margin-top:8px;padding-top:10px;border-top:1px solid var(--line)">
-        <dt>Charging allowed</dt><dd id="fetC">--</dd>
-        <dt>Power output allowed</dt><dd id="fetD">--</dd>
         <dt>Protection code</dt><dd id="prob">--</dd>
       </dl>
     </div>
@@ -361,6 +414,13 @@ pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px;
   <button id="btnAck">I'm on it</button>
   <button id="btnSnooze" class="alt">Remind me in 30 min</button>
 </div>
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-card" role="alertdialog" aria-labelledby="sheetHead" aria-describedby="sheetBody">
+    <h3 id="sheetHead"></h3>
+    <p id="sheetBody"></p>
+    <div class="row"><button id="sheetCancel">Cancel</button><button id="sheetOk" class="danger">Turn off</button></div>
+  </div>
+</div>
 <div id="toast" class="toast" role="status" hidden></div>
 
 <script id="protocol">
@@ -390,11 +450,21 @@ const TDT = {
     return new Uint8Array([...f, c >> 8, c & 0xff, TDT.TAIL]);
   },
 
+  // Switch commands, byte-for-byte as captured from the official WattCycle app and checked on
+  // real hardware (SecondShiftLabs1/wattcycle-battery-utility): address 0x82 = charging, 0x83 = output.
+  //   1E 00 01 06 00 82 00 01 <00 off | 01 on> CRC CRC 0D
+  SW_CHARGE: 0x82, SW_OUTPUT: 0x83,
+  switchCmd(addr, on) {
+    const f = [0x1e, 0x00, 0x01, 0x06, 0x00, addr, 0x00, 0x01, on ? 1 : 0];
+    const c = TDT.crc(f);
+    return new Uint8Array([...f, c >> 8, c & 0xff, TDT.TAIL]);
+  },
+
   // Validate a complete frame. Returns { cmd, data } or throws.
   // Some firmware sends a one-byte CRC on 0x8D replies; that case is let through.
   frame(bytes) {
     const f = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
-    if (f.length < 11 || f[0] !== 0x7e) throw new Error('Bad frame start');
+    if (f.length < 11 || (f[0] !== 0x7e && f[0] !== 0x1e)) throw new Error('Bad frame start');
     const len = (f[6] << 8) | f[7];
     if (f.length !== 11 + len) throw new Error('Bad frame length');
     if (f[f.length - 1] !== TDT.TAIL) throw new Error('Bad frame end');
@@ -569,9 +639,10 @@ class Battery {
   }
   // Notifications arrive in chunks; rebuild a full frame from its length field.
   onData(chunk) {
-    if (chunk[0] === 0x7e && this.buf.length && this.buf.length >= this.expect) this.buf = [];
-    if (chunk[0] === 0x7e && !this.buf.length) this.expect = 11 + ((chunk[6] << 8) | chunk[7]);
-    if (!this.buf.length && chunk[0] !== 0x7e) return;
+    const start = (chunk[0] === 0x7e || chunk[0] === 0x1e) && chunk.length >= 8;
+    if (start && this.buf.length && this.buf.length >= this.expect) this.buf = [];
+    if (start && !this.buf.length) this.expect = 11 + ((chunk[6] << 8) | chunk[7]);
+    if (!this.buf.length && !start) return;
     this.buf.push(...chunk);
     if (this.buf.length < this.expect) return;
     const bytes = new Uint8Array(this.buf.slice(0, this.expect)); this.buf = [];
@@ -607,6 +678,23 @@ class Battery {
       return { ...live, ...(status || {}), info: this.info, name: this.device.name || '', raw: this.raw };
     });
   }
+  // Flip charging or output, then read the status back to confirm what the battery actually did.
+  setSwitch(kind, on) {
+    return this.run(async () => {
+      await this.ensure();
+      const addr = kind === 'charge' ? TDT.SW_CHARGE : TDT.SW_OUTPUT;
+      const before = TDT.status(await this.ask(TDT.CMD_STATUS));
+      if ((kind === 'charge' ? before.chargeOn : before.dischargeOn) === on) return before;
+      const frame = TDT.switchCmd(addr, on);
+      log('→ switch ' + kind + ' ' + (on ? 'on' : 'off') + ': ' + hex(frame));
+      const reply = new Promise(res => { this.waiter = { cmd: addr, res }; });
+      await write(this.tx, frame);
+      await withTimeout(reply, 2500, 'Switch reply').catch(e => log(e.message));
+      this.waiter = null;
+      await sleep(700);
+      return TDT.status(await this.ask(TDT.CMD_STATUS));
+    });
+  }
   disconnect() { try { this.device && this.device.gatt.disconnect(); } catch (e) {} }
 }
 
@@ -630,7 +718,7 @@ class Demo {
     await sleep(200); onLink(true);
     this.t++;
     const furnace = Math.floor(this.t / 8) % 2;
-    const current = -(6.2 + furnace * 6.4) + Math.round(Math.random() * 6 - 3) / 10;
+    const current = this.out === false ? 0 : -(6.2 + furnace * 6.4) + Math.round(Math.random() * 6 - 3) / 10;
     this.ah = Math.max(0, this.ah + current * 2 / 3600);
     const soc = Math.round(this.ah);
     const base = 3.2 + this.ah / 1000;
@@ -638,9 +726,14 @@ class Demo {
     return {
       cells, temps: [8.4, 9.9, 6.8, 7.1], current, voltage: Math.round(cells.reduce((a, b) => a + b) * 100) / 100,
       remainAh: Math.round(this.ah * 10) / 10, designAh: 100, cycles: 47, soc, soh: 100,
-      problem: 0, chargeOn: true, dischargeOn: true, balancing: [],
+      problem: 0, chargeOn: this.chg !== false, dischargeOn: this.out !== false, balancing: [],
       info: { firmware: 'demo', maker: 'demo', serial: '0000' }, name: 'Demo battery', raw: { demo: true },
     };
+  }
+  async setSwitch(kind, on) {
+    await sleep(600);
+    if (kind === 'charge') this.chg = on; else this.out = on;
+    return { problem: 0, chargeOn: this.chg !== false, dischargeOn: this.out !== false, balancing: [] };
   }
   disconnect() {}
 }
@@ -721,6 +814,10 @@ function forecast(s) {
   const out = { level: 0, cls: 'good', icon: ICONS.ok, kind: 'On track', head: '', body: '', a, resAh, wake };
   const w = x => Math.round(Math.abs(x * s.voltage));
 
+  if (s.dischargeOn === false && load('wc_userOff'))
+    return { ...out, level: 0, cls: 'idle', icon: ICONS.idle, kind: 'Output off',
+      head: 'You turned power output off',
+      body: `Switched off at ${clock(+load('wc_userOff'))}. Tap Power output above to turn it back on.` };
   if (s.dischargeOn === false)
     return { ...out, level: 3, cls: 'critical', icon: ICONS.stop, kind: 'Power is off',
       head: 'The battery has shut off power to the RV',
@@ -894,6 +991,163 @@ function drawChart(f) {
   svg.addEventListener('pointerleave', hide);
 }
 
+// ---------- Battery switches ----------
+let swBusy = '';
+function renderSwitches() {
+  for (const [id, v, kind] of [['swCharge', st?.chargeOn, 'charge'], ['swOutput', st?.dischargeOn, 'output']]) {
+    const b = $(id);
+    b.classList.toggle('unknown', v == null);
+    b.setAttribute('aria-pressed', String(!!v));
+    b.querySelector('b').textContent = swBusy === kind ? '…' : v == null ? '--' : v ? 'On' : 'Off';
+    b.classList.toggle('busy', swBusy === kind);
+  }
+}
+// Ask before anything that cuts power. Resolves true when confirmed.
+function confirmSheet(head, body, ok) {
+  return new Promise(res => {
+    $('sheetHead').textContent = head; $('sheetBody').textContent = body; $('sheetOk').textContent = ok;
+    $('sheet').hidden = false; $('sheetCancel').focus();
+    const done = v => { $('sheet').hidden = true; $('sheetOk').onclick = $('sheetCancel').onclick = $('sheet').onclick = null; res(v); };
+    $('sheetOk').onclick = () => done(true);
+    $('sheetCancel').onclick = () => done(false);
+    $('sheet').onclick = e => { if (e.target === $('sheet')) done(false); };
+  });
+}
+async function toggleSwitch(kind) {
+  if (swBusy) return;
+  if (!st || !linked || !dev?.setSwitch) { toast('Not connected. Connect to the battery first.'); return; }
+  const cur = kind === 'charge' ? st.chargeOn : st.dischargeOn;
+  if (cur == null) { toast('Still reading the switch state. Try again in a moment.'); return; }
+  const want = !cur;
+  if (!want) {
+    const plan = wx && st ? weatherPlan(st, lastFc || forecast(st)) : null;
+    const cold = plan && plan.low <= 0 ? ` It's going down to ${temp(plan.low)} tonight, and the furnace can't run without battery power.` : '';
+    const ok = kind === 'charge'
+      ? await confirmSheet('Turn off charging?', 'The battery will stop taking charge from solar, shore power and the alternator until you turn it back on here.', 'Turn off charging')
+      : await confirmSheet('Turn off power output?', 'Everything in the RV that runs on the battery shuts off right away: furnace, lights, water pump, fridge controls and outlets on the inverter. You will need this app within Bluetooth range to turn it back on.' + cold, 'Turn off power');
+    if (!ok) return;
+  }
+  swBusy = kind; renderSwitches();
+  try {
+    const res = await dev.setSwitch(kind, want);
+    const got = kind === 'charge' ? res.chargeOn : res.dischargeOn;
+    Object.assign(st, { chargeOn: res.chargeOn, dischargeOn: res.dischargeOn, problem: res.problem });
+    const key = kind === 'charge' ? 'wc_userChgOff' : 'wc_userOff';
+    if (got === want) {
+      store(key, want ? null : String(Date.now()));
+      toast((kind === 'charge' ? 'Charging' : 'Power output') + ' is ' + (want ? 'on.' : 'off.'));
+      log('Switch ' + kind + ' is now ' + (want ? 'on' : 'off'));
+    } else {
+      toast(`The battery kept ${kind === 'charge' ? 'charging' : 'power output'} ${got ? 'on' : 'off'}. It may be protecting itself.`);
+      log('Switch ' + kind + ': asked ' + want + ', battery reports ' + got);
+    }
+  } catch (e) {
+    log('Switch failed: ' + e.message); toast('The command didn\'t go through. ' + hint(e));
+  } finally { swBusy = ''; render(); }
+}
+
+// ---------- Weather plan (Open-Meteo, free, no account) ----------
+let wx = null, wxLoading = false, wxFailed = false;
+try { wx = JSON.parse(load('wc_wx') || 'null'); } catch (e) { wx = null; }
+const wxLoc = () => { try { return JSON.parse(load('wc_loc') || 'null'); } catch (e) { return null; } };
+const panelW = () => +load('wc_solar') || 0;
+async function fetchWeather(force) {
+  const l = wxLoc();
+  if (!l || wxLoading) return;
+  if (!force && wx && Date.now() - wx.at < HOUR && wx.lat === l.lat && wx.lon === l.lon) return;
+  wxLoading = true;
+  const url = `https://api.open-meteo.com/v1/forecast?latitude=${l.lat}&longitude=${l.lon}` +
+    '&hourly=temperature_2m&daily=shortwave_radiation_sum&timezone=auto&timeformat=unixtime&forecast_days=3';
+  try {
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    wx = { at: Date.now(), lat: l.lat, lon: l.lon,
+      h: { t: j.hourly.time, temp: j.hourly.temperature_2m },
+      d: { t: j.daily.time, sw: j.daily.shortwave_radiation_sum } };
+    store('wc_wx', JSON.stringify(wx)); wxFailed = false;
+    log('Weather updated');
+  } catch (e) { log('Weather failed: ' + e.message); wxFailed = true; }
+  finally { wxLoading = false; renderWeather(); }
+}
+function locate() {
+  if (!navigator.geolocation) { toast('This browser can\'t share your location.'); return; }
+  $('btnLocate').disabled = true; $('btnLocate').textContent = 'Finding you…';
+  navigator.geolocation.getCurrentPosition(p => {
+    // Two decimals is about 1 km, plenty for a forecast.
+    store('wc_loc', JSON.stringify({ lat: +p.coords.latitude.toFixed(2), lon: +p.coords.longitude.toFixed(2) }));
+    fetchWeather(true);
+  }, e => { toast('Couldn\'t get your location. ' + e.message); $('btnLocate').disabled = false; $('btnLocate').textContent = 'Use my location'; },
+  { timeout: 20000, maximumAge: 30 * MIN });
+}
+// Peak sun hours: daily sunlight energy on flat ground in kWh/m², which suits flat RV roof panels.
+const sunLabel = h => h >= 4.5 ? 'Sunny' : h >= 2.5 ? 'Some sun' : h >= 1 ? 'Cloudy' : 'Overcast';
+function weatherPlan(s, f) {
+  if (!wx) return null;
+  const now = Date.now(), wake = f.wake;
+  const hrs = wx.h.t.map((t, i) => [t * 1000, wx.h.temp[i]]).filter(([t]) => t >= now - HOUR && t <= wake);
+  if (!hrs.length) return null;
+  const temps = hrs.map(x => x[1]);
+  const low = Math.min(...temps), freezeH = temps.filter(t => t <= 0).length;
+  // The sun that matters is the day you wake up into.
+  const di = wx.d.t.findIndex((t, i) => wake >= t * 1000 && wake < (wx.d.t[i + 1] ? wx.d.t[i + 1] * 1000 : t * 1000 + 24 * HOUR));
+  const psh = di >= 0 && wx.d.sw[di] != null ? wx.d.sw[di] / 3.6 : null;
+  const v = s.voltage || 13.2;
+  const solarAh = panelW() && psh != null ? panelW() * psh * 0.75 / v : null;
+  const ahAtWake = f.a < -IDLE_A ? Math.max(0, s.remainAh + f.a * (wake - now) / HOUR) : s.remainAh;
+  const needAh = Math.max(0, s.designAh - ahAtWake);
+  const cellT = (s.temps || []).length > 2 ? Math.min(...s.temps.slice(2)) : null;
+  const sameDay = di >= 0 && new Date(wx.d.t[di] * 1000).toDateString() === new Date(now).toDateString();
+
+  const tips = []; let lvl = 0;
+  const res = reservePct();
+  if (freezeH) {
+    tips.push(['warning', `Below freezing for about ${freezeH} hours tonight, down to ${temp(low)}. The furnace will cycle more than it is now, so plan on using more than the forecast above shows.`]);
+    lvl = 1;
+    if (f.level >= 1 || ahAtWake < s.designAh * (res + 15) / 100)
+      tips.push(['serious', 'Turn the thermostat down a few degrees overnight. On a cold night the furnace blower is usually the biggest draw on the battery.']);
+  }
+  if (psh != null) {
+    const lab = sunLabel(psh).toLowerCase();
+    if (solarAh != null) {
+      const put = Math.round(solarAh), need = Math.round(needAh);
+      if (need <= 2) tips.push(['good', `${sameDay ? 'Today' : 'Tomorrow'} looks ${lab}. You should still be nearly full in the morning.`]);
+      else if (solarAh >= needAh) tips.push(['good', `${sameDay ? 'Today' : 'Tomorrow'} looks ${lab}. Your ${panelW()} W of solar should put back about ${put} Ah, enough to refill the ${need} Ah you'll have used.`]);
+      else {
+        tips.push([solarAh < needAh * 0.4 ? 'serious' : 'warning', `${sameDay ? 'Today' : 'Tomorrow'} looks ${lab}. Solar should put back about ${put} Ah, short of the ${need} Ah you'll need to refill. Go easy tonight, or plan on the generator or shore power.`]);
+        lvl = Math.max(lvl, solarAh < needAh * 0.4 && f.level >= 1 ? 2 : 1);
+      }
+    } else tips.push(['', `${sameDay ? 'Today' : 'Tomorrow'} looks ${lab}, about ${psh.toFixed(1)} hours of full sun. Enter your solar panel size below to see how much that puts back.`]);
+  }
+  if (cellT != null && cellT <= 5 && freezeH)
+    tips.push(['warning', `The battery itself is at ${temp(cellT)}. LiFePO4 won't take a charge below freezing, so solar may not help in the morning until it warms up.`]);
+  if (f.level >= 2) { tips.push(['serious', 'Turn off the inverter and anything else you don\'t need tonight. An idle inverter alone can use 20 to 50 W.']); lvl = 2; }
+  if (!tips.length) tips.push(['good', 'No cold or cloudy weather to plan around.']);
+  return { low, freezeH, psh, solarAh, needAh, tips, lvl, sameDay };
+}
+function renderWeather() {
+  const l = wxLoc();
+  $('wxSetup').hidden = !!l; $('wxBody').hidden = !l;
+  if (!l) { $('wxStatus').hidden = true; return; }
+  if (!wx || Date.now() - wx.at > HOUR) fetchWeather();
+  const plan = st && lastFc && wx ? weatherPlan(st, lastFc) : null;
+  if (!plan) {
+    $('wxTips').innerHTML = ''; $('wxStatus').hidden = true;
+    $('wxNote').textContent = wxLoading ? 'Getting the forecast…' : wxFailed ? 'Couldn\'t get the forecast. It needs an internet connection.' : '';
+    return;
+  }
+  $('wxLow').textContent = temp(plan.low);
+  $('wxFreeze').textContent = plan.freezeH ? plan.freezeH + ' h' : 'None';
+  $('wxSunDay').textContent = plan.sameDay ? 'Today\'s sun' : 'Tomorrow\'s sun';
+  $('wxSun').textContent = plan.psh == null ? '--' : sunLabel(plan.psh);
+  $('wxTips').innerHTML = plan.tips.map(([c, m]) => `<li class="${c}">${m}</li>`).join('');
+  const st8 = $('wxStatus');
+  st8.hidden = false;
+  st8.className = 'wx-status' + (plan.lvl === 2 ? ' serious' : plan.lvl === 1 ? ' warning' : '');
+  st8.textContent = plan.lvl === 2 ? 'Conserve' : plan.lvl === 1 ? 'Go easy' : 'Looks good';
+  $('wxNote').textContent = 'Forecast from Open-Meteo, updated ' + clock(wx.at) + (wxFailed ? ' (couldn\'t refresh, no internet)' : '') + '.';
+}
+
 // ---------- Render ----------
 let dev = null, st = null, pollTimer = null, linked = false, lastFc = null;
 
@@ -960,14 +1214,13 @@ function render() {
   const temps = s.temps || [];
   const tname = i => i === 0 ? 'BMS board' : i === 1 ? 'Power switch' : temps.length > 3 ? 'Cell sensor ' + (i - 1) : 'Cells';
   $('temps').innerHTML = temps.map((c, i) => `<dt>${tname(i)}</dt><dd>${temp(c)}</dd>`).join('');
-  const onOff = (el, v) => { el.textContent = v == null ? '--' : v ? 'On' : 'Off'; el.className = v == null ? '' : v ? 'ok' : 'off'; };
-  onOff($('fetC'), s.chargeOn); onOff($('fetD'), s.dischargeOn);
+  renderSwitches();
   $('prob').textContent = s.problem == null ? '--' : s.problem ? '0x' + s.problem.toString(16).padStart(4, '0') : 'None';
 
   // other flags (the forecast card covers running out)
   const flags = [];
   const cellT = temps.slice(2), minT = cellT.length ? Math.min(...cellT) : NaN;
-  if (s.chargeOn === false) flags.push(['critical', 'The battery has switched off charging. It may be too cold, too hot, or full.']);
+  if (s.chargeOn === false && !load('wc_userChgOff')) flags.push(['critical', 'The battery has switched off charging. It may be too cold, too hot, or full.']);
   if (s.problem) flags.push(['warning', `The battery reports protection code 0x${s.problem.toString(16).padStart(4, '0')}.`]);
   if (isFinite(minT) && minT <= 0 && charging) flags.push(['critical', `Cells are at ${temp(minT)}. Charging LiFePO4 at or below freezing can damage it.`]);
   else if (isFinite(minT) && minT <= 3) flags.push(['warning', `Cells are near freezing (${temp(minT)}). The battery will limit charging.`]);
@@ -976,6 +1229,7 @@ function render() {
   $('flags').innerHTML = flags.map(([c, m]) => `<div class="flag ${c}">${m}</div>`).join('');
 
   drawChart(f);
+  renderWeather();
 
   $('devName').textContent = s.name || '--';
   $('fw').textContent = s.info?.firmware || '--';
@@ -986,7 +1240,12 @@ function render() {
 }
 
 function saveLast() { if (st && !(dev instanceof Demo)) { const { raw, ...rest } = st; store('wc_last', JSON.stringify(rest)); } }
-function got(s) { st = s; st.at = Date.now(); addHist(s); render(); saveLast(); }
+function got(s) {
+  // If the switches come back on (from here or the WattCycle app), forget that they were turned off on purpose.
+  if (s.dischargeOn) store('wc_userOff', null);
+  if (s.chargeOn) store('wc_userChgOff', null);
+  st = s; st.at = Date.now(); addHist(s); render(); saveLast();
+}
 
 let lostSince = 0;
 async function refresh() {
@@ -1085,6 +1344,11 @@ function showLastOrSetup() {
     $('dash').hidden = true; $('setup').hidden = false;
   };
   $('btnWatch').onclick = () => setWatch(!watching);
+  $('swCharge').onclick = () => toggleSwitch('charge');
+  $('swOutput').onclick = () => toggleSwitch('output');
+  $('btnLocate').onclick = locate;
+  $('solar').value = panelW() || '';
+  $('solar').onchange = () => { const v = Math.max(0, Math.round(+$('solar').value || 0)); store('wc_solar', v ? String(v) : null); renderWeather(); };
   $('btnAck').onclick = () => { stopAlarm(); toast('Alarm silenced. It will ring again if things get worse.'); };
   $('btnSnooze').onclick = () => { stopAlarm(); snoozeUntil = Date.now() + 30 * MIN; alertedLevel = 0; lostSince = 0; };
   $('btnTest').onclick = () => { unlockAudio(); showAlarm({ head: 'This is a test', body: 'This is what an alarm looks and sounds like. Turn your phone volume up.' }, 'critical'); };

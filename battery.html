@@ -240,29 +240,21 @@ pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px;
     <span id="conn" class="pill">Not connected</span>
   </header>
 
-  <!-- Connect -->
-  <section id="setup" class="panel stack">
-    <h2>Connect to your battery</h2>
-    <p id="nobt" class="note" hidden>This browser can't use Bluetooth. On iPhone, open this page in the free <strong>Bluefy</strong> browser. On Android or a Mac, use <strong>Chrome</strong>. You can still try the demo below.</p>
-    <p class="note">Close the WattCycle app first, because the battery accepts one Bluetooth connection at a time. Watt Cycle batteries usually show up with a name starting with <strong>WT</strong>.</p>
-    <div class="row">
-      <button id="btnConnect" class="primary">Connect</button>
-      <button id="btnDemo">Try demo</button>
-    </div>
-    <p id="autoMsg" class="note" hidden>Connecting to your battery…</p>
-    <details>
-      <summary>Battery not found?</summary>
-      <p class="note">Tap below to see every nearby Bluetooth device, then pick yours.</p>
-      <button id="btnAll">Show all nearby devices</button>
-    </details>
-    <pre id="setupLog" class="log" hidden></pre>
-  </section>
-
   <!-- Dashboard -->
-  <section id="dash" class="stack" hidden>
-    <div id="linkBar" class="panel linkbar" hidden>
-      <span id="linkMsg">Not connected</span>
-      <button id="btnLink" class="primary">Connect</button>
+  <section id="dash" class="stack">
+    <div id="linkBar" class="panel stack" style="gap:8px">
+      <div class="linkbar" style="padding:0">
+        <span id="linkMsg">Connecting…</span>
+        <button id="btnLink" class="primary">Connect</button>
+      </div>
+      <p id="nobt" class="note" hidden>This browser can't use Bluetooth. On iPhone, open this page in <strong>Bluefy</strong>. On Android, use <strong>Chrome</strong>.</p>
+      <details id="findHelp">
+        <summary>Battery not in the list?</summary>
+        <div class="stack" style="margin-top:6px">
+          <p class="note">Fully close the WattCycle app first (swipe it away). The battery only shows up while nothing else is connected to it. Then try showing every nearby device and pick the one starting with <strong>XDZ</strong>.</p>
+          <div class="row"><button id="btnAll">Show all nearby devices</button><button id="btnDemo">Try demo</button></div>
+        </div>
+      </details>
     </div>
 
     <div class="panel hero">
@@ -575,7 +567,7 @@ class Battery {
       const all = await navigator.bluetooth.getDevices();
       const name = load('wc_name');
       const d = all.find(x => x.id === id) || (name && all.find(x => x.name === name))
-        || all.find(x => /^(XDZN|WT)/.test(x.name || ''));
+        || all.find(x => /^(XDZ|WT)/.test(x.name || ''));
       if (!d) { log('Saved battery not in the browser\'s list'); return false; }
       this.use(d); log('Reusing saved battery "' + (d.name || '') + '"');
       if (d.watchAdvertisements) {
@@ -596,7 +588,7 @@ class Battery {
     const optionalServices = [...TDT.SERVICES, 0xfffa].map(uuid);
     this.use(await navigator.bluetooth.requestDevice(showAll
       ? { acceptAllDevices: true, optionalServices }
-      : { filters: [{ namePrefix: 'WT' }, { namePrefix: 'XDZN' }, { namePrefix: 'HS' }, { services: [uuid(0xfff0)] }], optionalServices }));
+      : { filters: [{ namePrefix: 'XDZ' }, { namePrefix: 'WT' }, { namePrefix: 'HS' }, { services: [uuid(0xfff0)] }, { services: [uuid(0xffe0)] }], optionalServices }));
     store('wc_dev', this.device.id); store('wc_name', this.device.name || null);
     log('Picked "' + (this.device.name || '(no name)') + '" id ' + this.device.id);
   }
@@ -1157,7 +1149,8 @@ function onLink(up, msg) {
   if (dev instanceof Demo) { c.textContent = 'Demo'; c.className = 'pill demo'; $('linkBar').hidden = true; return; }
   c.textContent = up ? 'Connected' : 'Not connected'; c.className = 'pill' + (up ? ' on' : '');
   $('linkBar').hidden = up;
-  if (!up) $('linkMsg').textContent = msg || 'Not connected. Showing the last reading.';
+  if (!up) $('linkMsg').textContent = msg || (st ? 'Not connected. Showing the last reading.' : 'Not connected.');
+  if (up) $('findHelp').open = false;
 }
 
 let toastT;
@@ -1284,15 +1277,15 @@ function startPolling() {
   }, dev instanceof Demo ? 2000 : 5000);
 }
 function stopPolling() { clearInterval(pollTimer); }
-function showDash() { $('setup').hidden = true; $('dash').hidden = false; }
+function showDash() {}
 
 async function connect(demo, showAll, auto) {
   unlockAudio();
   dev = demo ? new Demo() : new Battery();
   if (demo) hist = dev.seed.slice(); else loadHist();
-  const btn = demo ? $('btnDemo') : showAll ? $('btnAll') : $('dash').hidden ? $('btnConnect') : $('btnLink');
+  const btn = demo ? $('btnDemo') : showAll ? $('btnAll') : $('btnLink');
   btn.disabled = true; btn.classList.add('busy');
-  if (!demo && !$('dash').hidden) $('linkMsg').textContent = 'Connecting…';
+  if (!demo) $('linkMsg').textContent = auto ? 'Connecting to your battery…' : 'Pick your battery in the list…';
   try {
     await dev.pick(showAll, auto);
     got(await dev.read());
@@ -1300,19 +1293,21 @@ async function connect(demo, showAll, auto) {
   } catch (e) {
     log('Connect failed: ' + e.message);
     if (auto) {
-      onLink(false, dev.device ? 'Battery not in range yet. Retrying…' : 'Tap anywhere to connect.');
+      onLink(false, dev.device ? 'Battery not in range yet. Retrying…' : 'Tap anywhere to connect to your battery.');
       if (dev.device) { lastTry = Date.now(); startPolling(); } else armTapToConnect();
       return;
     }
-    toast(hint(e)); onLink(false, 'Couldn\'t connect. ' + hint(e));
-    $('setupLog').hidden = false; $('setupLog').textContent = $('log').textContent;
+    toast(hint(e));
+    onLink(false, /cancel/i.test(e.message) ? 'Tap anywhere to connect to your battery.' : 'Couldn\'t connect. ' + hint(e));
+    if (!/cancel/i.test(e.message)) $('findHelp').open = true;
+    armTapToConnect();
   } finally { btn.disabled = false; btn.classList.remove('busy'); }
 }
 
 // iPhone only lets a page start Bluetooth from a tap, so the first tap anywhere connects.
 let tapArmed = false;
 function armTapToConnect() {
-  if (tapArmed || !('bluetooth' in navigator) || !load('wc_dev')) return;
+  if (tapArmed || !('bluetooth' in navigator)) return;
   tapArmed = true;
   const go = e => {
     if (linked || e.target.closest('select, input, button, details, .chart')) return;
@@ -1323,25 +1318,21 @@ function armTapToConnect() {
   document.addEventListener('click', go, true);
 }
 
-// Open straight to the dashboard with the last reading once a battery has been used.
-function showLastOrSetup() {
-  if (!load('wc_dev')) return false;
+// Always open on the dashboard, with the last reading if there is one.
+function showLast() {
   try { const last = load('wc_last'); st = last ? { ...JSON.parse(last), cached: true } : null; } catch (e) { st = null; }
-  if (!st) return false;
-  loadHist(); showDash(); render(); onLink(false);
-  return true;
+  loadHist(); render(); renderWeather();
 }
 
 (function init() {
-  if (!('bluetooth' in navigator)) { $('nobt').hidden = false; $('btnConnect').disabled = true; $('btnAll').disabled = true; }
-  $('btnConnect').onclick = () => connect(false);
+  if (!('bluetooth' in navigator)) { $('nobt').hidden = false; $('btnLink').disabled = true; $('btnAll').disabled = true; }
   $('btnLink').onclick = () => connect(false);
   $('btnAll').onclick = () => connect(false, true);
   $('btnDemo').onclick = () => connect(true);
   $('btnRefresh').onclick = refresh;
   $('btnDisconnect').onclick = () => {
-    stopPolling(); setWatch(false); stopAlarm(); dev && dev.disconnect(); dev = null; st = null; onLink(false);
-    $('dash').hidden = true; $('setup').hidden = false;
+    stopPolling(); setWatch(false); stopAlarm(); dev && dev.disconnect(); dev = null;
+    onLink(false, 'Disconnected. Tap Connect to reconnect.');
   };
   $('btnWatch').onclick = () => setWatch(!watching);
   $('swCharge').onclick = () => toggleSwitch('charge');
@@ -1375,13 +1366,12 @@ function showLastOrSetup() {
     if (dev) refresh();
   });
 
-  const onDash = showLastOrSetup();
-  if ('bluetooth' in navigator && load('wc_dev') && navigator.bluetooth.getDevices) {
-    if (onDash) $('linkMsg').textContent = 'Connecting…'; else $('autoMsg').hidden = false;
-    connect(false, false, true).finally(() => { $('autoMsg').hidden = true; });
-  } else if (onDash) {
-    onLink(false, 'Tap anywhere to connect.'); armTapToConnect();
-  }
+  // Open on the dashboard and connect by itself to the battery picked before. The browser only
+  // shows its device list the very first time (or if it has no way to remember the battery).
+  showLast();
+  if (!('bluetooth' in navigator)) onLink(false, st ? 'Showing the last reading.' : 'Not connected.');
+  else if (load('wc_dev') && navigator.bluetooth.getDevices) connect(false, false, true);
+  else { onLink(false, 'Tap anywhere to connect to your battery.'); armTapToConnect(); }
 })();
 </script>
 </body>

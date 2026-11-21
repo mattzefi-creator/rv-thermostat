@@ -249,10 +249,10 @@ pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px;
       </div>
       <p id="nobt" class="note" hidden>This browser can't use Bluetooth. On iPhone, open this page in <strong>Bluefy</strong>. On Android, use <strong>Chrome</strong>.</p>
       <details id="findHelp">
-        <summary>Battery not in the list?</summary>
+        <summary>Can't find your battery?</summary>
         <div class="stack" style="margin-top:6px">
-          <p class="note">Fully close the WattCycle app first (swipe it away). The battery only shows up while nothing else is connected to it. Then try showing every nearby device and pick the one starting with <strong>XDZ</strong>.</p>
-          <div class="row"><button id="btnAll">Show all nearby devices</button><button id="btnDemo">Try demo</button></div>
+          <p class="note">Fully close the WattCycle app first (swipe it away), on every phone and tablet. The battery only shows up while nothing else is connected to it. In the list, pick the name starting with <strong>XDZ</strong> or <strong>WT</strong>.</p>
+          <div class="row"><button id="btnAll">Search again</button><button id="btnDemo">Try demo</button></div>
         </div>
       </details>
     </div>
@@ -586,9 +586,9 @@ class Battery {
   async pick(showAll, auto) {
     if (auto) { if (await this.remembered()) return; throw new Error('No saved battery'); }
     const optionalServices = [...TDT.SERVICES, 0xfffa].map(uuid);
-    this.use(await navigator.bluetooth.requestDevice(showAll
-      ? { acceptAllDevices: true, optionalServices }
-      : { filters: [{ namePrefix: 'XDZ' }, { namePrefix: 'WT' }, { namePrefix: 'HS' }, { services: [uuid(0xfff0)] }, { services: [uuid(0xffe0)] }], optionalServices }));
+    // Show every nearby device. Some XDZN batteries don't put their name in the part of the
+    // broadcast the browser filters on, so a filtered list can miss them. This is a one-time pick.
+    this.use(await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices }));
     store('wc_dev', this.device.id); store('wc_name', this.device.name || null);
     log('Picked "' + (this.device.name || '(no name)') + '" id ' + this.device.id);
   }

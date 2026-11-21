@@ -8,7 +8,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>RV Battery</title>
 <style>
-/* One column phone app: charge ring, forecast, charge history, numbers, cells, alert settings. */
+/* One column phone app: charge ring, switches, forecast, charge history, weather, numbers, settings. */
 :root {
   --bg: #f1f1ee;
   --panel: #fcfcfb;
@@ -155,17 +155,6 @@ select, input[type=time] { font: inherit; color: var(--ink); background: var(--s
 .tile { background: var(--soft); border-radius: 12px; padding: 10px 12px; min-width: 0; }
 .tile small { display: block; font-size: .74rem; color: var(--muted); }
 .tile span { font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
-
-/* cells */
-.cells { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
-.cell { background: var(--soft); border-radius: 10px; padding: 7px 9px; box-shadow: inset 0 0 0 2px transparent; min-width: 0; }
-.cell small { display: block; font-size: .72rem; color: var(--muted); white-space: nowrap; }
-.cell span { display: block; font-size: 1rem; font-weight: 600; font-variant-numeric: tabular-nums; }
-.cell.hi { box-shadow: inset 0 0 0 2px var(--good); }
-.cell.lo { box-shadow: inset 0 0 0 2px var(--series); }
-.cell.bal small::after { content: " · bal"; color: var(--ink); font-weight: 600; }
-.legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: .76rem; color: var(--muted); margin-top: 10px; }
-.legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; vertical-align: -1px; border: 2px solid; }
 
 .kv { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; margin: 0; font-size: .95rem; }
 .kv dt { color: var(--muted); }
@@ -342,13 +331,13 @@ pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px;
       <div class="tile"><small>Cell spread</small><span id="spread">--</span></div>
     </div>
 
-    <div class="panel">
-      <div class="head"><h2 id="cellsTitle">Cells</h2><span class="note">volts</span></div>
-      <div id="cells" class="cells"></div>
-      <div class="legend">
-        <span><i style="border-color:var(--good)"></i>Highest</span>
-        <span><i style="border-color:var(--series)"></i>Lowest</span>
-        <span>bal = balancing</span>
+    <div class="panel stack">
+      <div class="head" style="margin:0"><h2>Battery settings</h2></div>
+      <p class="note">The battery's own settings (charge and discharge limits, temperature cutoffs) aren't publicly documented yet, so this app can read them but not change them. Use the WattCycle app to change them for now.</p>
+      <button id="btnSettings">Read battery settings</button>
+      <div id="settingsOut" class="stack" hidden>
+        <pre id="settingsRaw"></pre>
+        <button id="btnCopySettings">Copy</button>
       </div>
     </div>
 
@@ -669,6 +658,10 @@ class Battery {
       try { status = TDT.status(await this.ask(TDT.CMD_STATUS)); } catch (e) { log('Status failed: ' + e.message); }
       return { ...live, ...(status || {}), info: this.info, name: this.device.name || '', raw: this.raw };
     });
+  }
+  // Read the protection-parameter block (address 0x46). Read-only: its layout isn't public yet.
+  readSettings() {
+    return this.run(async () => { await this.ensure(); return this.ask(0x46); });
   }
   // Flip charging or output, then read the status back to confirm what the battery actually did.
   setSwitch(kind, on) {
@@ -1140,6 +1133,29 @@ function renderWeather() {
   $('wxNote').textContent = 'Forecast from Open-Meteo, updated ' + clock(wx.at) + (wxFailed ? ' (couldn\'t refresh, no internet)' : '') + '.';
 }
 
+// ---------- Battery settings (read-only raw dump) ----------
+function settingsText(d) {
+  const lines = [];
+  for (let i = 0; i < d.length; i += 8)
+    lines.push(String(i).padStart(3, ' ') + ': ' + Array.from(d.subarray(i, i + 8), x => x.toString(16).padStart(2, '0')).join(' '));
+  return `Battery settings block (${d.length} bytes), read ${new Date().toLocaleString()}\n` +
+    `Battery: ${st?.name || '?'}  firmware ${st?.info?.firmware || '?'}\n` + lines.join('\n');
+}
+async function readSettings() {
+  if (!dev?.readSettings) { toast(dev instanceof Demo ? 'Not available in the demo.' : 'Not connected. Connect to the battery first.'); return; }
+  const b = $('btnSettings'); b.disabled = true; b.classList.add('busy'); b.textContent = 'Reading…';
+  try {
+    const d = await dev.readSettings();
+    const txt = settingsText(d);
+    store('wc_settings_raw', txt);
+    $('settingsRaw').textContent = txt; $('settingsOut').hidden = false;
+    log('Read settings block, ' + d.length + ' bytes');
+  } catch (e) {
+    log('Settings read failed: ' + e.message);
+    toast('The battery didn\'t send its settings. ' + hint(e));
+  } finally { b.disabled = false; b.classList.remove('busy'); b.textContent = 'Read battery settings'; }
+}
+
 // ---------- Render ----------
 let dev = null, st = null, pollTimer = null, linked = false, lastFc = null;
 
@@ -1191,17 +1207,10 @@ function render() {
   $('soh').textContent = s.soh != null ? s.soh + '%' : '--';
   $('cycles').textContent = s.cycles;
 
-  // cells
+  // cell spread (one number; feeds the imbalance warning)
   const cells = s.cells || [];
-  const hi = Math.max(...cells), lo = Math.min(...cells);
-  const bal = new Set(s.balancing || []);
-  const spread = cells.length ? Math.round((hi - lo) * 1000) : 0;
+  const spread = cells.length ? Math.round((Math.max(...cells) - Math.min(...cells)) * 1000) : 0;
   $('spread').textContent = spread + ' mV';
-  $('cellsTitle').textContent = `Cells (${cells.length})`;
-  $('cells').innerHTML = cells.map((v, i) => {
-    const mark = hi !== lo ? (v === hi ? ' hi' : v === lo ? ' lo' : '') : '';
-    return `<div class="cell${mark}${bal.has(i) ? ' bal' : ''}"><small>Cell ${i + 1}</small><span>${v.toFixed(3)}</span></div>`;
-  }).join('');
 
   // temperatures: the first two sensors sit on the BMS board, the rest on the cells
   const temps = s.temps || [];
@@ -1338,6 +1347,12 @@ function showLast() {
   $('swCharge').onclick = () => toggleSwitch('charge');
   $('swOutput').onclick = () => toggleSwitch('output');
   $('btnLocate').onclick = locate;
+  $('btnSettings').onclick = readSettings;
+  $('btnCopySettings').onclick = async () => {
+    try { await navigator.clipboard.writeText($('settingsRaw').textContent); toast('Copied.'); }
+    catch (e) { toast('Couldn\'t copy. Press and hold the text to select it.'); }
+  };
+  if (load('wc_settings_raw')) { $('settingsRaw').textContent = load('wc_settings_raw'); $('settingsOut').hidden = false; }
   $('solar').value = panelW() || '';
   $('solar').onchange = () => { const v = Math.max(0, Math.round(+$('solar').value || 0)); store('wc_solar', v ? String(v) : null); renderWeather(); };
   $('btnAck').onclick = () => { stopAlarm(); toast('Alarm silenced. It will ring again if things get worse.'); };

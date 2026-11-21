@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f1f1ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>RV Solar</title>
+<style>
+/* One column phone app: total solar, each Victron controller, add a controller. */
+:root {
+  --bg: #f1f1ee; --panel: #fcfcfb; --ink: #0b0b0b; --muted: #52514e; --faint: #8a8984;
+  --line: #e1e0d9; --axis: #c3c2b7; --soft: #f1f0ec; --series: #2a78d6;
+  --good: #0ca30c; --good-ink: #006300; --warning: #fab219; --critical: #d03b3b;
+  --sun: #e8a200; --sun-wash: #fdf3d8;
+  --warning-wash: #fdf1d6; --critical-wash: #fae2e2;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #111110; --panel: #1a1a19; --ink: #f0efec; --muted: #c3c2b7; --faint: #8a8984;
+    --line: #2c2c2a; --axis: #383835; --soft: #232321; --series: #3987e5; --good-ink: #0ca30c;
+    --sun: #f2b53a; --sun-wash: #2e2410; --warning-wash: #2e2410; --critical-wash: #321414;
+    color-scheme: dark;
+  }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink); font: 16px/1.45 var(--font);
+  padding: max(12px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(24px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  -webkit-tap-highlight-color: transparent;
+}
+main { max-width: 480px; margin: 0 auto; display: grid; gap: 12px; }
+header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 2px; }
+header div { display: flex; align-items: center; gap: 10px; }
+h1 { font-size: 1.15rem; margin: 0; font-weight: 650; }
+h2 { font-size: .95rem; margin: 0; font-weight: 600; }
+.home { color: var(--muted); text-decoration: none; font-size: .95rem; padding: 6px 4px; }
+.panel { background: var(--panel); border-radius: 18px; padding: 18px; box-shadow: 0 0 0 1px var(--line); }
+.stack { display: grid; gap: 12px; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.row > * { flex: 1 1 auto; }
+.note { font-size: .85rem; color: var(--muted); margin: 0; }
+.note strong, .note code { color: var(--ink); }
+.pill { font-size: .78rem; padding: 4px 10px; border-radius: 999px; background: var(--soft); color: var(--muted); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--faint); }
+.pill.on::before { background: var(--good); }
+.pill.demo::before { background: var(--warning); }
+button { font: inherit; color: inherit; cursor: pointer; border-radius: 12px; border: 0; box-shadow: inset 0 0 0 1px var(--line); background: var(--panel); padding: 10px 14px; min-height: 44px; }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--series); outline-offset: 2px; }
+button:disabled { opacity: .5; cursor: default; }
+button.primary { background: var(--ink); color: var(--bg); box-shadow: none; font-weight: 600; }
+button.link { background: none; box-shadow: none; color: var(--muted); padding: 4px 0; min-height: 32px; font-size: .85rem; text-decoration: underline; }
+label { display: grid; gap: 4px; font-size: .85rem; color: var(--muted); }
+input { font: inherit; color: var(--ink); background: var(--soft); border: 0; border-radius: 10px; padding: 10px 12px; min-height: 44px; width: 100%; }
+input.key { font-family: var(--mono); font-size: .9rem; letter-spacing: .02em; }
+
+.hero { display: grid; gap: 14px; }
+.sunrow { display: flex; align-items: center; gap: 16px; }
+.sunicon { width: 64px; height: 64px; border-radius: 50%; background: var(--sun-wash); display: grid; place-items: center; color: var(--sun); flex: 0 0 auto; }
+.sunicon svg { width: 36px; height: 36px; }
+.big { font-size: 3.4rem; font-weight: 300; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.03em; }
+.big small { font-size: 1.1rem; font-weight: 500; color: var(--muted); margin-left: 3px; }
+.sub { font-size: .9rem; color: var(--muted); }
+.tiles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.tile { background: var(--soft); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+.tile small { display: block; font-size: .74rem; color: var(--muted); }
+.tile span { font-size: 1.15rem; font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+.ctrl { display: grid; gap: 10px; }
+.ctrl-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.ctrl-name { font-weight: 650; }
+.ctrl-seen { font-size: .78rem; color: var(--muted); }
+.state { font-size: .78rem; font-weight: 650; padding: 4px 10px; border-radius: 999px; background: var(--soft); white-space: nowrap; display: inline-flex; gap: 6px; align-items: center; }
+.state::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--faint); }
+.state.charging::before { background: var(--good); }
+.state.fault::before { background: var(--critical); }
+.flag { border-radius: 12px; padding: 10px 12px; font-size: .88rem; background: var(--critical-wash); }
+.flag.warning { background: var(--warning-wash); }
+ol { margin: 0; padding-left: 20px; font-size: .9rem; display: grid; gap: 6px; }
+details summary { cursor: pointer; color: var(--muted); font-size: .85rem; min-height: 32px; display: flex; align-items: center; }
+pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px; padding: 10px; max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-all; margin: 8px 0 0; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 12px; font-size: .9rem; max-width: calc(100% - 32px); z-index: 5; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div><a class="home" href="./">‹ Home</a><h1>Solar</h1></div>
+    <span id="conn" class="pill">Not listening</span>
+  </header>
+
+  <div id="unsupported" class="panel stack" hidden>
+    <h2>This browser can't hear the controllers</h2>
+    <p class="note">The solar page reads the live data your Victron controllers broadcast over Bluetooth. That needs a browser feature that isn't on by default.</p>
+    <ol>
+      <li><strong>Android:</strong> open Chrome, type <code>chrome://flags</code> in the address bar, search for <strong>Experimental Web Platform features</strong>, set it to <strong>Enabled</strong>, and restart Chrome.</li>
+      <li><strong>iPhone:</strong> Bluefy may not support this. If it doesn't, an Android phone or tablet with Chrome is the way to go.</li>
+    </ol>
+    <button id="btnDemoU">Try demo</button>
+  </div>
+
+  <section class="panel hero">
+    <div class="sunrow">
+      <div class="sunicon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg></div>
+      <div>
+        <div class="big"><span id="totW">--</span><small>W</small></div>
+        <div class="sub" id="totSub">Solar coming in right now</div>
+      </div>
+    </div>
+    <div class="tiles">
+      <div class="tile"><small>Today</small><span id="totYield">--</span></div>
+      <div class="tile"><small>To battery</small><span id="totOut">--</span></div>
+      <div class="tile"><small>Battery</small><span id="totV">--</span></div>
+    </div>
+  </section>
+
+  <div id="ctrls" class="stack"></div>
+
+  <section class="panel stack" id="addPanel">
+    <h2 id="addTitle">Add a solar controller</h2>
+    <div id="addStart" class="stack">
+      <p class="note">Each SmartSolar controller is added once. You'll need its encryption key from the VictronConnect app.</p>
+      <button id="btnAdd" class="primary">Add a controller</button>
+      <button id="btnAddAll" class="link">Not in the list? Show all nearby devices</button>
+    </div>
+    <div id="addKey" class="stack" hidden>
+      <p class="note">Picked <strong id="pickedName"></strong>. Now paste its encryption key:</p>
+      <ol>
+        <li>Open <strong>VictronConnect</strong> and tap the controller.</li>
+        <li>Tap the gear icon, then the three-dot menu, then <strong>Product info</strong>.</li>
+        <li>Make sure <strong>Instant readout via Bluetooth</strong> is on, then tap <strong>Show</strong> next to Instant readout details.</li>
+        <li>Copy the <strong>Encryption key</strong> (32 letters and numbers) and paste it below.</li>
+      </ol>
+      <label>Name<input id="ctrlName" maxlength="40" placeholder="Roof solar"></label>
+      <label>Encryption key<input id="ctrlKey" class="key" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="32 characters"></label>
+      <div class="row"><button id="btnCancelAdd">Cancel</button><button id="btnSaveAdd" class="primary">Save</button></div>
+    </div>
+  </section>
+
+  <section class="panel stack">
+    <p class="note">The key stays on this phone. Nothing connects to the controllers, so VictronConnect keeps working at the same time.</p>
+    <p class="note" id="updated"></p>
+    <details>
+      <summary>Diagnostics</summary>
+      <pre id="log"></pre>
+    </details>
+    <button id="btnDemo" class="link">Try demo</button>
+  </section>
+</main>
+<div id="toast" class="toast" role="status" hidden></div>
+
+<script src="victron.js"></script>
+<script>
+'use strict';
+const $ = id => document.getElementById(id);
+function log(m) { const el = $('log'); el.textContent = (new Date().toLocaleTimeString() + '  ' + m + '\n' + el.textContent).slice(0, 6000); }
+let toastT;
+function toast(m) { const t = $('toast'); t.textContent = m; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 3500); }
+const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+const fmtWh = wh => wh == null ? '--' : wh >= 1000 ? (wh / 1000).toFixed(2) + ' kWh' : Math.round(wh) + ' Wh';
+function ago(t) {
+  const s = Math.round((Date.now() - t) / 1000);
+  if (s < 10) return 'just now';
+  if (s < 90) return s + ' s ago';
+  if (s < 5400) return Math.round(s / 60) + ' min ago';
+  return new Date(t).toLocaleString([], { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' });
+}
+
+let demo = false, readings = Victron.lastReadings(), stopWatch = null, status = {};
+
+function render() {
+  const list = demo ? DEMO.list : Victron.controllers();
+  const now = Date.now();
+  const tot = demo ? DEMO.totals() : Victron.totals(readings);
+  $('totW').textContent = tot ? Math.round(tot.solarW) : '--';
+  $('totYield').textContent = tot ? fmtWh(tot.yieldWh) : '--';
+  $('totOut').textContent = tot ? Math.round(tot.outW) + ' W' : '--';
+  const vs = list.map(c => (demo ? DEMO.r[c.id] : readings[c.id])).filter(r => r && r.batteryV != null);
+  $('totV').textContent = vs.length ? vs[0].batteryV.toFixed(2) + ' V' : '--';
+  $('totSub').textContent = !list.length ? 'Add a controller below to get started' :
+    tot ? `Solar coming in from ${tot.count === 1 ? 'your controller' : tot.count + ' controllers'}` : 'Waiting to hear from your controllers…';
+
+  $('ctrls').innerHTML = list.map(c => {
+    const r = demo ? DEMO.r[c.id] : readings[c.id];
+    const st = status[c.id];
+    const fresh = r && !r.error && now - r.at < Victron.FRESH_MS;
+    let body;
+    if (st && st.error && /key/i.test(st.message)) body = `<div class="flag">The encryption key doesn't match this controller. Remove it and add it again with the key from VictronConnect.</div>`;
+    else if (r && r.unsupported) body = `<div class="flag warning">This Victron device isn't a solar charger, so it isn't shown here.</div>`;
+    else if (!r) body = `<p class="note">${st && st.error ? 'Can\'t listen: ' + esc(st.message) : 'Waiting for its first broadcast. Make sure Instant readout is on in VictronConnect and you are within Bluetooth range.'}</p>`;
+    else body = `<div class="tiles">
+        <div class="tile"><small>Solar</small><span>${r.solarW ?? '--'} W</span></div>
+        <div class="tile"><small>To battery</small><span>${r.chargeA != null ? r.chargeA.toFixed(1) + ' A' : '--'}</span></div>
+        <div class="tile"><small>Today</small><span>${fmtWh(r.yieldWh)}</span></div>
+      </div>
+      ${r.errorText ? `<div class="flag">${esc(r.errorText)}</div>` : ''}`;
+    const charging = r && [3, 4, 5, 6, 7, 246, 247].includes(r.state) && (r.solarW || 0) > 0;
+    const stCls = r && (r.state === 2 || r.errorText) ? 'fault' : charging ? 'charging' : '';
+    return `<section class="panel ctrl">
+      <div class="ctrl-top">
+        <div><div class="ctrl-name">${esc(c.name)}</div><div class="ctrl-seen">${r ? (fresh ? 'Heard ' : 'Last heard ') + ago(r.at) : 'Not heard yet'}</div></div>
+        ${r && !r.unsupported ? `<span class="state ${stCls}">${esc(r.stateText)}</span>` : ''}
+      </div>
+      ${body}
+      ${demo ? '' : `<button class="link" data-remove="${esc(c.id)}">Remove</button>`}
+    </section>`;
+  }).join('');
+  document.querySelectorAll('[data-remove]').forEach(b => b.onclick = () => removeCtrl(b.dataset.remove));
+  $('addTitle').textContent = list.length ? 'Add another controller' : 'Add a solar controller';
+  $('addPanel').hidden = demo;
+  const pill = $('conn');
+  if (demo) { pill.textContent = 'Demo'; pill.className = 'pill demo'; }
+  else if (tot) { pill.textContent = 'Live'; pill.className = 'pill on'; }
+  else { pill.textContent = list.length ? 'Listening…' : 'Not set up'; pill.className = 'pill'; }
+  $('updated').textContent = tot ? 'Updated ' + ago(tot.at) : '';
+}
+
+function startWatching() {
+  if (stopWatch) stopWatch();
+  if (!Victron.supported() || !Victron.controllers().length) return;
+  stopWatch = Victron.watch((id, r) => {
+    if (r && r.error) { status[id] = r; log(id.slice(0, 6) + ': ' + r.message); }
+    else if (r) { status[id] = null; readings[id] = r; }
+    render();
+  }, log);
+}
+
+// ---------- Add / remove ----------
+let picked = null;
+async function addCtrl(showAll) {
+  if (!Victron.supported()) { $('unsupported').hidden = false; $('unsupported').scrollIntoView(); return; }
+  try {
+    picked = await Victron.pick(showAll);
+    log('Picked "' + (picked.name || '(no name)') + '"');
+    if (Victron.controllers().some(c => c.id === picked.id)) { toast('That controller is already added.'); picked = null; return; }
+    $('pickedName').textContent = picked.name || 'your controller';
+    $('ctrlName').value = picked.name || '';
+    $('ctrlKey').value = '';
+    $('addStart').hidden = true; $('addKey').hidden = false; $('ctrlKey').focus();
+  } catch (e) {
+    log('Pick failed: ' + e.message);
+    if (!/cancel/i.test(e.message)) toast('Couldn\'t pick a controller. ' + e.message);
+  }
+}
+function saveCtrl() {
+  const key = Victron.cleanKey($('ctrlKey').value);
+  if (!Victron.validKey(key)) { toast('The key should be 32 letters and numbers. Copy it again from VictronConnect.'); return; }
+  const list = Victron.controllers();
+  list.push({ id: picked.id, name: $('ctrlName').value.trim() || picked.name || 'Solar controller', key });
+  Victron.saveControllers(list);
+  picked = null;
+  $('addKey').hidden = true; $('addStart').hidden = false;
+  toast('Saved. Listening for its broadcasts…');
+  startWatching(); render();
+}
+function removeCtrl(id) {
+  const c = Victron.controllers().find(x => x.id === id);
+  if (!c || !confirm('Remove ' + c.name + '?')) return;
+  Victron.saveControllers(Victron.controllers().filter(x => x.id !== id));
+  delete readings[id]; startWatching(); render();
+}
+
+// ---------- Demo: two controllers on a partly cloudy afternoon ----------
+const DEMO = {
+  list: [{ id: 'd1', name: 'Roof solar' }, { id: 'd2', name: 'Portable panel' }],
+  r: {},
+  tick() {
+    const t = Date.now() / 1000, cloud = 0.75 + 0.25 * Math.sin(t / 9);
+    const mk = (w, y) => ({ state: 3, stateText: 'Bulk', error: 0, errorText: '', batteryV: 13.31, solarW: Math.round(w * cloud), chargeA: +(w * cloud * 0.96 / 13.31).toFixed(1), yieldWh: y, at: Date.now() });
+    this.r = { d1: mk(310, 1240), d2: mk(95, 380) };
+  },
+  totals() {
+    const rs = Object.values(this.r);
+    return { count: rs.length, solarW: rs.reduce((t, r) => t + r.solarW, 0), outW: rs.reduce((t, r) => t + r.chargeA * r.batteryV, 0), yieldWh: rs.reduce((t, r) => t + r.yieldWh, 0), at: Date.now() };
+  },
+};
+function startDemo() {
+  demo = true; if (stopWatch) stopWatch();
+  $('unsupported').hidden = true;
+  DEMO.tick(); render();
+  setInterval(() => { DEMO.tick(); render(); }, 2000);
+}
+
+(function init() {
+  $('btnAdd').onclick = () => addCtrl(false);
+  $('btnAddAll').onclick = () => addCtrl(true);
+  $('btnCancelAdd').onclick = () => { picked = null; $('addKey').hidden = true; $('addStart').hidden = false; };
+  $('btnSaveAdd').onclick = saveCtrl;
+  $('btnDemo').onclick = startDemo; $('btnDemoU').onclick = startDemo;
+  if (!Victron.supported()) { $('unsupported').hidden = false; log('watchAdvertisements not available in this browser'); }
+  render();
+  startWatching();
+  setInterval(render, 10000); // keep "heard x ago" current
+})();
+</script>
+</body>
+</html>

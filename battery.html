@@ -197,6 +197,28 @@ select, input[type=time] { font: inherit; color: var(--ink); background: var(--s
 .sheet-card .row button { min-height: 52px; }
 button.danger { background: var(--critical); color: #fff; box-shadow: none; font-weight: 650; }
 
+/* what's using power */
+.use-now { display: flex; align-items: baseline; gap: 8px; }
+.use-now b { font-size: 2rem; font-weight: 600; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+.use-now span { color: var(--muted); font-size: .9rem; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: .82rem; padding: 6px 10px; border-radius: 999px; background: var(--soft); min-height: 32px; box-shadow: none; display: inline-flex; align-items: center; gap: 6px; }
+.chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--series); }
+.chip.other::before { background: var(--axis); }
+.chip b { font-weight: 600; font-variant-numeric: tabular-nums; }
+.usage { display: grid; grid-template-columns: 1fr auto auto; gap: 6px 14px; margin: 0; font-size: .92rem; font-variant-numeric: tabular-nums; }
+.usage dt { color: var(--ink); }
+.usage dd { margin: 0; text-align: right; color: var(--muted); }
+.usage .tot { font-weight: 650; color: var(--ink); padding-top: 6px; border-top: 1px solid var(--line); }
+.events { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: .9rem; }
+.events li { display: grid; grid-template-columns: 70px 60px 1fr auto; align-items: center; gap: 8px; min-height: 32px; font-variant-numeric: tabular-nums; }
+.events .t { color: var(--muted); font-size: .82rem; }
+.events .d { font-weight: 600; }
+.events button { min-height: 32px; padding: 4px 10px; font-size: .82rem; }
+.sub-h { font-size: .78rem; font-weight: 650; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 4px 0 0; }
+.count { font-size: 3rem; font-weight: 300; text-align: center; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.meas-live { text-align: center; color: var(--muted); font-size: .9rem; }
+
 /* weather plan */
 .wx-status { font-size: .78rem; font-weight: 650; padding: 4px 10px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; background: var(--soft); }
 .wx-status::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--good); }
@@ -316,6 +338,22 @@ pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px;
       </div>
     </div>
 
+    <section class="panel stack" id="usePanel">
+      <div class="head" style="margin:0"><h2>What's using power</h2></div>
+      <div class="use-now"><b id="useNow">--</b><span id="useNote">RV using right now</span></div>
+      <div class="chips" id="useChips"></div>
+      <p class="sub-h">Today</p>
+      <dl class="usage" id="useToday"></dl>
+      <p class="sub-h">Recent changes</p>
+      <ul class="events" id="useEvents"></ul>
+      <button id="btnMeasure" class="primary">Measure a device</button>
+      <details>
+        <summary>Your devices</summary>
+        <dl class="kv" id="useDevices" style="margin-top:8px"></dl>
+      </details>
+      <p class="note">Works out what the RV is using from the solar coming in and the battery's flow, then spots devices turning on and off by their size. Shore power, a generator or the alternator also feed in power the app can't see, so numbers are only accurate on solar and battery.</p>
+    </section>
+
     <section class="panel stack" id="wxPanel">
       <div class="head" style="margin:0"><h2>Weather plan</h2><span id="wxStatus" class="wx-status" hidden></span></div>
       <div id="wxSetup" class="stack">
@@ -412,6 +450,27 @@ pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px;
     <h3 id="sheetHead"></h3>
     <p id="sheetBody"></p>
     <div class="row"><button id="sheetCancel">Cancel</button><button id="sheetOk" class="danger">Turn off</button></div>
+  </div>
+</div>
+<div id="measure" class="sheet" hidden>
+  <div class="sheet-card" role="dialog" aria-labelledby="mHead">
+    <h3 id="mHead">Measure a device</h3>
+    <div id="mName" class="stack">
+      <p class="note" id="mNameNote">Name the device, make sure it's off, then tap Start. Keep everything else the same for about a minute.</p>
+      <label>Device<input id="mDevice" list="devSuggest" maxlength="30" placeholder="Furnace"></label>
+      <datalist id="devSuggest"><option>Furnace</option><option>Fridge</option><option>Water pump</option><option>Inverter</option><option>TV</option><option>Lights</option><option>Vent fan</option><option>Coffee maker</option><option>Microwave</option><option>CPAP</option><option>Laptop charger</option></datalist>
+      <div class="row"><button id="mCancel">Cancel</button><button id="mStart" class="primary">Start</button></div>
+    </div>
+    <div id="mRun" class="stack" hidden>
+      <p class="note" id="mStep"></p>
+      <div class="count" id="mCount">20</div>
+      <p class="meas-live" id="mLive"></p>
+      <button id="mAbort">Cancel</button>
+    </div>
+    <div id="mDone" class="stack" hidden>
+      <p id="mResult" style="margin:0;font-size:1.05rem"></p>
+      <div class="row"><button id="mRetry">Try again</button><button id="mSave" class="primary">Save</button></div>
+    </div>
   </div>
 </div>
 <div id="toast" class="toast" role="status" hidden></div>
@@ -745,10 +804,11 @@ function addHist(s) {
   const now = Date.now(), last = hist[hist.length - 1];
   if (last && now - last.t < MIN && last.n) {
     last.n++; last.a = +(last.a + (s.current - last.a) / last.n).toFixed(2);
+    if (s.use != null) { last.un = (last.un || 0) + 1; last.u = Math.round((last.u ?? s.use) + (s.use - (last.u ?? s.use)) / last.un); }
     Object.assign(last, { soc: s.soc, ah: s.remainAh, v: s.voltage });
   } else {
-    if (last) delete last.n;
-    hist.push({ t: now, soc: s.soc, ah: s.remainAh, a: s.current, v: s.voltage, n: 1 });
+    if (last) { delete last.n; delete last.un; }
+    hist.push({ t: now, soc: s.soc, ah: s.remainAh, a: s.current, v: s.voltage, n: 1, ...(s.use != null ? { u: Math.round(s.use), un: 1 } : {}) });
   }
   trimHist(); saveHist();
 }
@@ -1188,6 +1248,218 @@ function renderSplit() {
   $('splitUse').textContent = Math.max(0, Math.round(t.outW - net)) + ' W';
 }
 
+// ---------- What's using power ----------
+// RV use = solar charger output to the battery − battery net flow (charging positive). With no solar
+// controllers set up, the battery alone is the source, so RV use = its discharge. When a device turns
+// on or off, RV use steps up or down by about its draw; steps are matched to measured devices.
+const median = a => { const b = [...a].sort((x, y) => x - y), m = b.length >> 1; return b.length % 2 ? b[m] : (b[m - 1] + b[m]) / 2; };
+const jget = (k, d) => { try { return JSON.parse(load(k) || 'null') ?? d; } catch (e) { return d; } };
+let devicesList = jget('wc_devices', []), events = jget('wc_events', []), running = new Set(jget('wc_running', []));
+let level = null, pend = [];
+function saveUse() {
+  const cut = Date.now() - 48 * HOUR; events = events.filter(e => e.t >= cut);
+  if (dev instanceof Demo) return;
+  store('wc_devices', JSON.stringify(devicesList)); store('wc_events', JSON.stringify(events)); store('wc_running', JSON.stringify([...running]));
+}
+function rvUse(s) {
+  if (!s || s.cached) return null;
+  const net = s.current * s.voltage;
+  const t = window.Victron ? Victron.totals() : null;
+  if (t) return Math.max(0, t.outW - net);
+  const solarSetUp = window.Victron && Victron.controllers().length && !(dev instanceof Demo);
+  if (solarSetUp) return null;            // solar exists but isn't being heard: can't separate it
+  if (s.current > IDLE_A) return null;    // charging from something the app can't see
+  return Math.max(0, -net);
+}
+function trackUse(s) {
+  const u = rvUse(s); s.use = u;
+  if (measuring) measuring.sample(u);
+  if (u == null) { pend = []; return; }
+  if (level == null) { level = u; return; }
+  pend.push(u); if (pend.length > 3) pend.shift();
+  if (pend.length < 3) return;
+  const th = Math.max(12, level * 0.1);
+  const dir = Math.sign(pend[0] - level);
+  if (pend.every(x => Math.abs(x - level) > th && Math.sign(x - level) === dir)) {
+    const nl = median(pend), d = nl - level;
+    level = nl; pend = [];
+    if (!measuring) onStep(d);
+  } else if (pend.every(x => Math.abs(x - level) <= th)) {
+    level = level * 0.8 + median(pend) * 0.2; // follow slow drift
+  }
+  if (level < 4 && running.size) { running.clear(); saveUse(); }
+}
+const tol = p => Math.max(10, p.w * 0.25);
+// After a device is named or measured, go back through the unnamed changes in order and match the
+// ones its size fits, so its on/off state and today's totals line up with what already happened.
+function assignHistory(p) {
+  let on = false;
+  for (const e of events) {
+    if (e.dev === p.id) { on = e.d > 0; continue; }
+    if (e.dev || Math.abs(Math.abs(e.d) - p.w) > tol(p)) continue;
+    if (e.d > 0 && !on) { e.dev = p.id; on = true; }
+    else if (e.d < 0 && on) { e.dev = p.id; on = false; }
+  }
+  on ? running.add(p.id) : running.delete(p.id);
+}
+function onStep(d) {
+  const on = d > 0, size = Math.abs(d);
+  const pool = devicesList.filter(p => (on ? !running.has(p.id) : running.has(p.id)) && Math.abs(size - p.w) <= tol(p));
+  const m = pool.sort((a, b) => Math.abs(size - a.w) - Math.abs(size - b.w))[0];
+  if (m) on ? running.add(m.id) : running.delete(m.id);
+  events.push({ t: Date.now(), d: Math.round(d), dev: m ? m.id : null });
+  log(`Use ${on ? 'up' : 'down'} ${Math.round(size)} W` + (m ? ` (${m.name} ${on ? 'on' : 'off'})` : ''));
+  saveUse();
+}
+// Runtime and energy per device since midnight, from its matched on/off events.
+function usageToday() {
+  const mid = new Date(); mid.setHours(0, 0, 0, 0);
+  const from = mid.getTime(), now = Date.now(), out = {};
+  for (const p of devicesList) {
+    let on = null, ms = 0;
+    // a device already running at midnight counts from midnight
+    const before = events.filter(e => e.dev === p.id && e.t < from).pop();
+    if (before && before.d > 0) on = from;
+    for (const e of events.filter(e => e.dev === p.id && e.t >= from)) {
+      if (e.d > 0 && on == null) on = e.t;
+      else if (e.d < 0 && on != null) { ms += e.t - on; on = null; }
+    }
+    if (on != null && running.has(p.id)) ms += now - on;
+    if (ms > 0) out[p.id] = { h: ms / HOUR, wh: p.w * ms / HOUR };
+  }
+  // total RV energy today from the per-minute history
+  let tot = 0, have = 0;
+  const pts = hist.filter(x => x.t >= from && x.u != null);
+  for (let i = 0; i < pts.length; i++) {
+    const end = i + 1 < pts.length ? pts[i + 1].t : now;
+    const dt = Math.min(end - pts[i].t, 5 * MIN);
+    tot += pts[i].u * dt / HOUR; have += dt;
+  }
+  return { per: out, totalWh: have ? tot : null, coveredH: have / HOUR };
+}
+const fmtE = wh => wh >= 1000 ? (wh / 1000).toFixed(2) + ' kWh' : Math.round(wh) + ' Wh';
+const fmtH = h => h >= 1 ? h.toFixed(1) + ' h' : Math.round(h * 60) + ' min';
+function renderUse() {
+  const u = st ? st.use : null;
+  $('useNow').textContent = u == null ? '--' : Math.round(u) + ' W';
+  const solarSetUp = window.Victron && Victron.controllers().length;
+  $('useNote').textContent = u != null ? 'RV using right now' : !st || st.cached ? 'Waiting for the battery' :
+    solarSetUp ? 'Waiting to hear the solar controllers' : st.current > IDLE_A ? 'Charging from something the app can\'t see' : 'RV using right now';
+  // running now
+  const runDevs = devicesList.filter(p => running.has(p.id));
+  const known = runDevs.reduce((t, p) => t + p.w, 0);
+  const other = u == null ? 0 : Math.max(0, Math.round(u - known));
+  $('useChips').innerHTML = runDevs.map(p => `<button class="chip" data-off="${p.id}" title="Tap to mark off">${esc(p.name)} <b>${p.w} W</b></button>`).join('') +
+    (u != null && other > 0 ? `<span class="chip other">Everything else <b>${other} W</b></span>` : '');
+  document.querySelectorAll('[data-off]').forEach(b => b.onclick = () => { running.delete(b.dataset.off); saveUse(); renderUse(); toast('Marked as off.'); });
+  // today
+  const t = usageToday();
+  const rows = devicesList.filter(p => t.per[p.id]).sort((a, b) => t.per[b.id].wh - t.per[a.id].wh)
+    .map(p => `<dt>${esc(p.name)}</dt><dd>${fmtH(t.per[p.id].h)}</dd><dd>${fmtE(t.per[p.id].wh)}</dd>`);
+  const knownWh = Object.values(t.per).reduce((x, v) => x + v.wh, 0);
+  if (t.totalWh != null) {
+    if (t.totalWh - knownWh > 1) rows.push(`<dt>Everything else</dt><dd></dd><dd>${fmtE(t.totalWh - knownWh)}</dd>`);
+    rows.push(`<dt class="tot">RV total</dt><dd class="tot">${fmtH(t.coveredH)} tracked</dd><dd class="tot">${fmtE(t.totalWh)}</dd>`);
+  }
+  $('useToday').innerHTML = rows.join('') || '<dt style="color:var(--muted)">Nothing tracked yet today.</dt>';
+  // recent changes
+  const name = id => (devicesList.find(p => p.id === id) || {}).name;
+  $('useEvents').innerHTML = events.slice(-6).reverse().map((e, i) => {
+    const n = e.dev && name(e.dev);
+    const label = n ? `${esc(n)} ${e.d > 0 ? 'on' : 'off'}` : e.d > 0 ? 'Something turned on' : 'Something turned off';
+    const idx = events.length - 1 - i;
+    return `<li><span class="t">${clock(e.t)}</span><span class="d">${e.d > 0 ? '+' : '−'}${Math.abs(e.d)} W</span><span>${label}</span>${!n ? `<button data-label="${idx}">Name it</button>` : '<span></span>'}</li>`;
+  }).join('') || '<li style="display:block;color:var(--muted)">Changes show up here as things turn on and off.</li>';
+  document.querySelectorAll('[data-label]').forEach(b => b.onclick = () => openMeasure(+b.dataset.label));
+  // devices
+  $('useDevices').innerHTML = devicesList.map(p => `<dt>${esc(p.name)}</dt><dd>${p.w} W <button class="link" data-del="${p.id}" style="margin-left:8px">Remove</button></dd>`).join('') ||
+    '<dt style="color:var(--muted)">None yet. Measure one, or name a change above.</dt>';
+  document.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+    const p = devicesList.find(x => x.id === b.dataset.del);
+    if (!p || !confirm('Remove ' + p.name + '?')) return;
+    devicesList = devicesList.filter(x => x.id !== p.id); running.delete(p.id);
+    events.forEach(e => { if (e.dev === p.id) e.dev = null; });
+    saveUse(); renderUse();
+  });
+}
+const esc = x => String(x).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
+
+// ---------- Measure a device (or name an unknown change) ----------
+let measuring = null, labelIdx = null, measuredW = null, fastPoll = null;
+function openMeasure(idx) {
+  labelIdx = idx == null ? null : idx;
+  const e = labelIdx != null ? events[labelIdx] : null;
+  $('mHead').textContent = e ? `Name this change (${e.d > 0 ? '+' : '−'}${Math.abs(e.d)} W)` : 'Measure a device';
+  $('mNameNote').textContent = e ? `At ${clock(e.t)} the RV's use went ${e.d > 0 ? 'up' : 'down'} by ${Math.abs(e.d)} W. What ${e.d > 0 ? 'turned on' : 'turned off'}?` :
+    'Name the device, make sure it\'s off, then tap Start. Keep everything else the same for about a minute.';
+  $('mStart').textContent = e ? 'Save' : 'Start';
+  $('mDevice').value = '';
+  $('mName').hidden = false; $('mRun').hidden = true; $('mDone').hidden = true;
+  $('measure').hidden = false; $('mDevice').focus();
+}
+function closeMeasure() {
+  measuring = null; clearInterval(fastPoll); fastPoll = null;
+  $('measure').hidden = true;
+}
+function addDevice(nm, w, isOn) {
+  let p = devicesList.find(x => x.name.toLowerCase() === nm.toLowerCase());
+  if (p) p.w = w; else { p = { id: Date.now().toString(36), name: nm, w }; devicesList.push(p); }
+  if (isOn) running.add(p.id); else running.delete(p.id);
+  return p;
+}
+function startMeasure() {
+  const nm = $('mDevice').value.trim();
+  if (!nm) { toast('Give the device a name first.'); return; }
+  if (labelIdx != null) {
+    const e = events[labelIdx];
+    const p = addDevice(nm, Math.abs(e.d), e.d > 0);
+    e.dev = p.id;
+    assignHistory(p);
+    saveUse(); closeMeasure(); renderUse(); toast(`Saved ${nm} as about ${p.w} W.`);
+    return;
+  }
+  if (!st || st.cached || !linked) { toast('Connect to the battery first.'); return; }
+  if (rvUse(st) == null) { toast(Victron.controllers().length ? 'Waiting to hear the solar controllers. Try again in a moment.' : 'This works on battery or solar power, not while charging from shore power or a generator.'); return; }
+  $('mName').hidden = true; $('mRun').hidden = false;
+  const base = [], on = [];
+  let phase = 'base', left = 20;
+  measuring = { sample: u => { if (u != null) (phase === 'base' ? base : on).push(u); $('mLive').textContent = u == null ? '' : `RV using ${Math.round(u)} W`; } };
+  const tick = () => {
+    left--;
+    $('mCount').textContent = Math.max(0, left);
+    if (left > 0) return;
+    if (phase === 'base') {
+      phase = 'wait'; left = 6;
+      $('mStep').innerHTML = `Turn <b>${esc(nm)}</b> on now.`;
+      navigator.vibrate?.(200); beep(false);
+    } else if (phase === 'wait') {
+      phase = 'on'; left = 25;
+      $('mStep').innerHTML = `Measuring with <b>${esc(nm)}</b> on. Keep it running.`;
+    } else {
+      const b = base.length ? median(base) : null, o = on.length ? median(on) : null;
+      measuring = null; clearInterval(fastPoll); fastPoll = null; clearInterval(timer);
+      $('mRun').hidden = true; $('mDone').hidden = false;
+      measuredW = b != null && o != null ? Math.round(o - b) : null;
+      if (measuredW == null) { $('mResult').textContent = 'Lost the readings partway through. Try again.'; $('mSave').hidden = true; }
+      else if (measuredW < 4) { $('mResult').textContent = `Couldn't see ${nm} turn on. Make sure it really started, or it may use less than about 5 W.`; $('mSave').hidden = true; }
+      else { $('mResult').innerHTML = `<b>${esc(nm)}</b> uses about <b>${measuredW} W</b> (${(measuredW / (st.voltage || 13)).toFixed(1)} A).`; $('mSave').hidden = false; }
+      measuring && (measuring = null);
+      $('mSave').onclick = () => {
+        const p = addDevice(nm, measuredW, true);
+        assignHistory(p); running.add(p.id);
+        level = o; pend = [];
+        saveUse(); closeMeasure(); renderUse(); toast(`Saved ${nm}. The app will now spot it turning on and off.`);
+      };
+    }
+  };
+  $('mStep').innerHTML = `Reading the RV's use with <b>${esc(nm)}</b> off…`;
+  $('mCount').textContent = left;
+  const timer = setInterval(() => { if (!measuring && phase !== 'on') { clearInterval(timer); return; } tick(); }, 1000);
+  // read the battery faster while measuring
+  fastPoll = setInterval(() => { if (linked) refresh(); }, 2500);
+  measuring.timer = timer;
+}
+
 // ---------- Render ----------
 let dev = null, st = null, pollTimer = null, linked = false, lastFc = null;
 
@@ -1265,6 +1537,7 @@ function render() {
 
   drawChart(f);
   renderWeather();
+  renderUse();
 
   $('devName').textContent = s.name || '--';
   $('fw').textContent = s.info?.firmware || '--';
@@ -1279,7 +1552,9 @@ function got(s) {
   // If the switches come back on (from here or the WattCycle app), forget that they were turned off on purpose.
   if (s.dischargeOn) store('wc_userOff', null);
   if (s.chargeOn) store('wc_userChgOff', null);
-  st = s; st.at = Date.now(); addHist(s); render(); saveLast();
+  st = s; st.at = Date.now();
+  trackUse(s);
+  addHist(s); render(); saveLast();
 }
 
 let lostSince = 0;
@@ -1381,6 +1656,12 @@ function showLast() {
   $('swOutput').onclick = () => toggleSwitch('output');
   $('btnLocate').onclick = locate;
   $('btnSettings').onclick = readSettings;
+  $('btnMeasure').onclick = () => openMeasure(null);
+  $('mCancel').onclick = closeMeasure;
+  $('mAbort').onclick = () => { if (measuring?.timer) clearInterval(measuring.timer); closeMeasure(); };
+  $('mStart').onclick = startMeasure;
+  $('mRetry').onclick = () => { $('mDone').hidden = true; $('mName').hidden = false; };
+  $('measure').onclick = e => { if (e.target === $('measure') && !measuring) closeMeasure(); };
   $('btnCopySettings').onclick = async () => {
     try { await navigator.clipboard.writeText($('settingsRaw').textContent); toast('Copied.'); }
     catch (e) { toast('Couldn\'t copy. Press and hold the text to select it.'); }

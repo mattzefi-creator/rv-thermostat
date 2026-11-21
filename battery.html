@@ -1415,7 +1415,7 @@ function showLast() {
   });
 
   // Listen to the Victron solar controllers saved on the Solar page (no prompts, nothing connects).
-  if (window.Victron && Victron.supported() && Victron.controllers().length) Victron.watch(() => renderSplit(), log);
+  if (window.Victron && Victron.hasBluetooth() && Victron.controllers().length) Victron.watch(() => renderSplit(), log);
 
   // Open on the dashboard and connect by itself to the battery picked before. The browser only
   // shows its device list the very first time (or if it has no way to remember the battery).

@@ -106,7 +106,18 @@
     };
   }
 
-  const supported = () => 'bluetooth' in navigator && !!global.BluetoothDevice && 'watchAdvertisements' in global.BluetoothDevice.prototype;
+  // Two ways a browser can deliver broadcasts: per-device watchAdvertisements (works on its own after
+  // the first pick) or requestLEScan (needs a tap each time the page opens). Some browsers, such as
+  // Bluefy, don't expose BluetoothDevice as a global, so the device itself is checked too.
+  const canWatch = d => !!d && typeof d.watchAdvertisements === 'function';
+  const canScan = () => 'bluetooth' in navigator && typeof navigator.bluetooth.requestLEScan === 'function';
+  const supported = () => 'bluetooth' in navigator && ((!!global.BluetoothDevice && 'watchAdvertisements' in global.BluetoothDevice.prototype) || canScan());
+  const hasBluetooth = () => 'bluetooth' in navigator;
+  function capabilities() {
+    return 'Web Bluetooth ' + (hasBluetooth() ? 'yes' : 'no') +
+      ', watchAdvertisements ' + (global.BluetoothDevice && 'watchAdvertisements' in global.BluetoothDevice.prototype ? 'yes' : 'not global') +
+      ', requestLEScan ' + (canScan() ? 'yes' : 'no') + ', getDevices ' + (hasBluetooth() && navigator.bluetooth.getDevices ? 'yes' : 'no');
+  }
 
   // Pick a controller once; the browser remembers it so watching can start later without a tap.
   async function pick(showAll) {
@@ -115,41 +126,71 @@
       : { filters: [{ manufacturerData: [{ companyIdentifier: COMPANY }] }], optionalManufacturerData: [COMPANY] });
   }
 
-  // Listen to every saved controller. onReading(id, reading) runs for each decoded broadcast.
+  // Decode one broadcast for a saved controller and pass the reading on.
+  function handler(c, seen, onReading) {
+    return async e => {
+      const md = e.manufacturerData && e.manufacturerData.get(COMPANY);
+      if (!md) return;
+      const adv = new Uint8Array(md.buffer, md.byteOffset, md.byteLength);
+      // Victron repeats the same broadcast until the data changes; the IV changes with it.
+      const sig = adv[5] + ',' + adv[6];
+      if (seen[c.id] === sig) return;
+      seen[c.id] = sig;
+      try {
+        const r = await decode(adv, c.key);
+        r.at = Date.now(); r.rssi = e.rssi;
+        const all = lastReadings(); all[c.id] = r; store('vc_last', JSON.stringify(all));
+        onReading(c.id, r);
+      } catch (err) {
+        onReading(c.id, { error: true, message: err.message, at: Date.now() });
+      }
+    };
+  }
+
+  // Listen to every saved controller without a tap. Returns { stop, needsScan }: needsScan is a promise
+  // that resolves true when this browser can only listen through a tap-started scan.
   function watch(onReading, log = () => {}) {
     const ac = new AbortController();
     const seen = {};
-    (async () => {
-      if (!supported()) { log('This browser cannot read Bluetooth broadcasts'); return; }
+    const needsScan = (async () => {
+      if (!hasBluetooth()) { log('No Web Bluetooth in this browser'); return false; }
+      log(capabilities());
       let devices = [];
       try { devices = navigator.bluetooth.getDevices ? await navigator.bluetooth.getDevices() : []; } catch (e) { log('getDevices failed: ' + e.message); }
+      let fallback = false;
       for (const c of controllers()) {
         const d = devices.find(x => x.id === c.id);
-        if (!d) { log('Controller "' + c.name + '" not remembered by the browser. Add it again.'); continue; }
-        d.addEventListener('advertisementreceived', async e => {
-          const md = e.manufacturerData && e.manufacturerData.get(COMPANY);
-          if (!md) return;
-          const adv = new Uint8Array(md.buffer, md.byteOffset, md.byteLength);
-          // Victron repeats the same broadcast until the data changes; the IV changes with it.
-          const sig = adv[5] + ',' + adv[6];
-          if (seen[c.id] === sig) { onReading(c.id, null, e.rssi); return; }
-          seen[c.id] = sig;
-          try {
-            const r = await decode(adv, c.key);
-            r.at = Date.now(); r.rssi = e.rssi;
-            const all = lastReadings(); all[c.id] = r; store('vc_last', JSON.stringify(all));
-            onReading(c.id, r);
-          } catch (err) {
-            onReading(c.id, { error: true, message: err.message, at: Date.now() });
-          }
-        }, { signal: ac.signal });
+        if (!d || !canWatch(d)) {
+          log(c.name + ': ' + (!d ? 'not remembered by the browser' : 'browser cannot watch this device'));
+          if (canScan()) fallback = true;
+          else onReading(c.id, { error: true, message: !d ? 'This browser doesn\'t remember the controller. Remove it and add it again.' : 'This browser can\'t listen to Bluetooth broadcasts.', at: Date.now() });
+          continue;
+        }
+        d.addEventListener('advertisementreceived', handler(c, seen, onReading), { signal: ac.signal });
         try { await d.watchAdvertisements({ signal: ac.signal }); log('Listening to ' + c.name); }
-        catch (e) { log('Could not listen to ' + c.name + ': ' + e.message); onReading(c.id, { error: true, message: e.message, at: Date.now() }); }
+        catch (e) {
+          log('Could not watch ' + c.name + ': ' + e.message);
+          if (canScan()) fallback = true;
+          else onReading(c.id, { error: true, message: e.message, at: Date.now() });
+        }
       }
+      return fallback;
     })();
-    return () => ac.abort();
+    return { stop: () => ac.abort(), needsScan };
   }
 
-  global.Victron = { COMPANY, decode, decrypt, parseSolar, validKey, cleanKey, controllers, saveControllers, lastReadings, totals, supported, pick, watch, FRESH_MS };
+  // Tap-started scan for browsers without watchAdvertisements. Must be called from a tap.
+  async function scan(onReading, log = () => {}) {
+    const seen = {};
+    const handlers = {};
+    for (const c of controllers()) handlers[c.id] = handler(c, seen, onReading);
+    const ls = await navigator.bluetooth.requestLEScan({ filters: [{ manufacturerData: [{ companyIdentifier: COMPANY }] }], keepRepeatedDevices: true });
+    const onAdv = e => { const h = handlers[e.device && e.device.id]; if (h) h(e); };
+    navigator.bluetooth.addEventListener('advertisementreceived', onAdv);
+    log('Scanning for broadcasts');
+    return () => { try { ls.stop(); } catch (e) {} navigator.bluetooth.removeEventListener('advertisementreceived', onAdv); };
+  }
+
+  global.Victron = { COMPANY, decode, decrypt, parseSolar, validKey, cleanKey, controllers, saveControllers, lastReadings, totals, supported, hasBluetooth, canWatch, canScan, capabilities, pick, watch, scan, FRESH_MS };
   if (typeof module !== 'undefined') module.exports = global.Victron;
 })(typeof window !== 'undefined' ? window : globalThis);

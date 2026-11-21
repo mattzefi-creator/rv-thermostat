@@ -95,13 +95,14 @@ pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px;
     <span id="conn" class="pill">Not listening</span>
   </header>
 
+  <div id="scanBar" class="panel stack" hidden>
+    <p class="note">This browser needs a tap to start listening to your controllers each time the page opens.</p>
+    <button id="btnScan" class="primary">Start listening</button>
+  </div>
+
   <div id="unsupported" class="panel stack" hidden>
-    <h2>This browser can't hear the controllers</h2>
-    <p class="note">The solar page reads the live data your Victron controllers broadcast over Bluetooth. That needs a browser feature that isn't on by default.</p>
-    <ol>
-      <li><strong>Android:</strong> open Chrome, type <code>chrome://flags</code> in the address bar, search for <strong>Experimental Web Platform features</strong>, set it to <strong>Enabled</strong>, and restart Chrome.</li>
-      <li><strong>iPhone:</strong> Bluefy may not support this. If it doesn't, an Android phone or tablet with Chrome is the way to go.</li>
-    </ol>
+    <h2>This browser can't use Bluetooth</h2>
+    <p class="note">The solar page reads the live data your Victron controllers broadcast over Bluetooth. On iPhone, open this page in <strong>Bluefy</strong>. On Android, use <strong>Chrome</strong>.</p>
     <button id="btnDemoU">Try demo</button>
   </div>
 
@@ -124,6 +125,14 @@ pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px;
 
   <section class="panel stack" id="addPanel">
     <h2 id="addTitle">Add a solar controller</h2>
+    <div id="addBlocked" class="stack" hidden>
+      <div class="flag warning" id="addBlockedMsg"></div>
+      <ol>
+        <li><strong>Android:</strong> in Chrome, go to <code>chrome://flags</code>, turn on <strong>Experimental Web Platform features</strong>, and restart Chrome.</li>
+        <li><strong>iPhone:</strong> Bluefy doesn't seem to offer this. An Android phone or tablet with Chrome can run the Solar page.</li>
+      </ol>
+      <button id="btnBlockedOk">OK</button>
+    </div>
     <div id="addStart" class="stack">
       <p class="note">Each SmartSolar controller is added once. You'll need its encryption key from the VictronConnect app.</p>
       <button id="btnAdd" class="primary">Add a controller</button>
@@ -221,23 +230,42 @@ function render() {
   $('updated').textContent = tot ? 'Updated ' + ago(tot.at) : '';
 }
 
+function onReading(id, r) {
+  if (r && r.error) { status[id] = r; log(id.slice(0, 6) + ': ' + r.message); }
+  else if (r) { status[id] = null; readings[id] = r; }
+  render();
+}
 function startWatching() {
   if (stopWatch) stopWatch();
-  if (!Victron.supported() || !Victron.controllers().length) return;
-  stopWatch = Victron.watch((id, r) => {
-    if (r && r.error) { status[id] = r; log(id.slice(0, 6) + ': ' + r.message); }
-    else if (r) { status[id] = null; readings[id] = r; }
-    render();
-  }, log);
+  stopWatch = null;
+  if (!Victron.hasBluetooth() || !Victron.controllers().length) return;
+  const w = Victron.watch(onReading, log);
+  stopWatch = w.stop;
+  w.needsScan.then(need => { $('scanBar').hidden = !need; });
+}
+async function startScan() {
+  try {
+    const stop = await Victron.scan(onReading, log);
+    const prev = stopWatch; stopWatch = () => { stop(); prev && prev(); };
+    $('scanBar').hidden = true; toast('Listening…');
+  } catch (e) { log('Scan failed: ' + e.message); toast('Couldn\'t start listening. ' + e.message); }
 }
 
 // ---------- Add / remove ----------
 let picked = null;
+function blocked(msg) {
+  $('addBlockedMsg').textContent = msg;
+  $('addStart').hidden = true; $('addKey').hidden = true; $('addBlocked').hidden = false;
+}
 async function addCtrl(showAll) {
-  if (!Victron.supported()) { $('unsupported').hidden = false; $('unsupported').scrollIntoView(); return; }
+  if (!Victron.hasBluetooth()) { blocked('This browser can\'t use Bluetooth at all. On iPhone, open this page in Bluefy; on Android, use Chrome.'); return; }
   try {
     picked = await Victron.pick(showAll);
-    log('Picked "' + (picked.name || '(no name)') + '"');
+    log('Picked "' + (picked.name || '(no name)') + '". ' + Victron.capabilities() + ', device watch ' + (Victron.canWatch(picked) ? 'yes' : 'no'));
+    if (!Victron.canWatch(picked) && !Victron.canScan()) {
+      blocked(`This browser found ${picked.name || 'the controller'}, but it can't listen to the live data it broadcasts, so the Solar page can't show its readings here.`);
+      picked = null; return;
+    }
     if (Victron.controllers().some(c => c.id === picked.id)) { toast('That controller is already added.'); picked = null; return; }
     $('pickedName').textContent = picked.name || 'your controller';
     $('ctrlName').value = picked.name || '';
@@ -282,6 +310,7 @@ const DEMO = {
 };
 function startDemo() {
   demo = true; if (stopWatch) stopWatch();
+  $('scanBar').hidden = true;
   $('unsupported').hidden = true;
   DEMO.tick(); render();
   setInterval(() => { DEMO.tick(); render(); }, 2000);
@@ -290,10 +319,13 @@ function startDemo() {
 (function init() {
   $('btnAdd').onclick = () => addCtrl(false);
   $('btnAddAll').onclick = () => addCtrl(true);
+  $('btnBlockedOk').onclick = () => { $('addBlocked').hidden = true; $('addStart').hidden = false; };
+  $('btnScan').onclick = startScan;
   $('btnCancelAdd').onclick = () => { picked = null; $('addKey').hidden = true; $('addStart').hidden = false; };
   $('btnSaveAdd').onclick = saveCtrl;
   $('btnDemo').onclick = startDemo; $('btnDemoU').onclick = startDemo;
-  if (!Victron.supported()) { $('unsupported').hidden = false; log('watchAdvertisements not available in this browser'); }
+  if (!Victron.hasBluetooth()) $('unsupported').hidden = false;
+  log(Victron.capabilities());
   render();
   startWatching();
   setInterval(render, 10000); // keep "heard x ago" current

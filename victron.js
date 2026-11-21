@@ -126,11 +126,25 @@
       : { filters: [{ manufacturerData: [{ companyIdentifier: COMPANY }] }], optionalManufacturerData: [COMPANY] });
   }
 
+  // Per-controller counters so the page can say exactly where things stop: nothing heard at all,
+  // heard but no Victron data in it, or Victron data that won't decode.
+  const stats = {};
+  const stat = id => stats[id] || (stats[id] = { since: Date.now(), ads: 0, victron: 0, decoded: 0, err: '', watching: false, how: '' });
+  // Devices picked in this visit, in case the browser doesn't hand them back through getDevices().
+  const session = {};
+  const remember = d => { if (d && d.id) session[d.id] = d; };
+
   // Decode one broadcast for a saved controller and pass the reading on.
-  function handler(c, seen, onReading) {
+  function handler(c, seen, onReading, log = () => {}) {
     return async e => {
+      const s = stat(c.id); s.ads++;
       const md = e.manufacturerData && e.manufacturerData.get(COMPANY);
-      if (!md) return;
+      if (!md) {
+        if (s.ads === 1) log(c.name + ': heard it, but the broadcast has no Victron data (manufacturer ids: ' + (e.manufacturerData ? [...e.manufacturerData.keys()].map(k => '0x' + k.toString(16)).join(',') || 'none' : 'none') + ')');
+        onReading(c.id, null);
+        return;
+      }
+      s.victron++;
       const adv = new Uint8Array(md.buffer, md.byteOffset, md.byteLength);
       // Victron repeats the same broadcast until the data changes; the IV changes with it.
       const sig = adv[5] + ',' + adv[6];
@@ -138,10 +152,13 @@
       seen[c.id] = sig;
       try {
         const r = await decode(adv, c.key);
+        s.decoded++; s.err = '';
         r.at = Date.now(); r.rssi = e.rssi;
         const all = lastReadings(); all[c.id] = r; store('vc_last', JSON.stringify(all));
         onReading(c.id, r);
       } catch (err) {
+        s.err = err.message;
+        if (s.victron === 1) log(c.name + ': ' + err.message + ' (record type ' + adv[4] + ', ' + adv.length + ' bytes)');
         onReading(c.id, { error: true, message: err.message, at: Date.now() });
       }
     };
@@ -157,18 +174,21 @@
       log(capabilities());
       let devices = [];
       try { devices = navigator.bluetooth.getDevices ? await navigator.bluetooth.getDevices() : []; } catch (e) { log('getDevices failed: ' + e.message); }
+      log('Browser remembers ' + devices.length + ' Bluetooth device(s)');
       let fallback = false;
       for (const c of controllers()) {
-        const d = devices.find(x => x.id === c.id);
+        const d = devices.find(x => x.id === c.id) || session[c.id];
+        const s = stat(c.id);
         if (!d || !canWatch(d)) {
           log(c.name + ': ' + (!d ? 'not remembered by the browser' : 'browser cannot watch this device'));
           if (canScan()) fallback = true;
           else onReading(c.id, { error: true, message: !d ? 'This browser doesn\'t remember the controller. Remove it and add it again.' : 'This browser can\'t listen to Bluetooth broadcasts.', at: Date.now() });
           continue;
         }
-        d.addEventListener('advertisementreceived', handler(c, seen, onReading), { signal: ac.signal });
-        try { await d.watchAdvertisements({ signal: ac.signal }); log('Listening to ' + c.name); }
+        d.addEventListener('advertisementreceived', handler(c, seen, onReading, log), { signal: ac.signal });
+        try { await d.watchAdvertisements({ signal: ac.signal }); s.watching = true; s.how = 'watch'; s.since = Date.now(); log('Listening to ' + c.name); onReading(c.id, null); }
         catch (e) {
+          s.err = e.message;
           log('Could not watch ' + c.name + ': ' + e.message);
           if (canScan()) fallback = true;
           else onReading(c.id, { error: true, message: e.message, at: Date.now() });
@@ -183,7 +203,7 @@
   async function scan(onReading, log = () => {}) {
     const seen = {};
     const handlers = {};
-    for (const c of controllers()) handlers[c.id] = handler(c, seen, onReading);
+    for (const c of controllers()) { handlers[c.id] = handler(c, seen, onReading, log); Object.assign(stat(c.id), { watching: true, how: 'scan', since: Date.now() }); }
     const ls = await navigator.bluetooth.requestLEScan({ filters: [{ manufacturerData: [{ companyIdentifier: COMPANY }] }], keepRepeatedDevices: true });
     const onAdv = e => { const h = handlers[e.device && e.device.id]; if (h) h(e); };
     navigator.bluetooth.addEventListener('advertisementreceived', onAdv);
@@ -191,6 +211,6 @@
     return () => { try { ls.stop(); } catch (e) {} navigator.bluetooth.removeEventListener('advertisementreceived', onAdv); };
   }
 
-  global.Victron = { COMPANY, decode, decrypt, parseSolar, validKey, cleanKey, controllers, saveControllers, lastReadings, totals, supported, hasBluetooth, canWatch, canScan, capabilities, pick, watch, scan, FRESH_MS };
+  global.Victron = { stats, stat, remember, COMPANY, decode, decrypt, parseSolar, validKey, cleanKey, controllers, saveControllers, lastReadings, totals, supported, hasBluetooth, canWatch, canScan, capabilities, pick, watch, scan, FRESH_MS };
   if (typeof module !== 'undefined') module.exports = global.Victron;
 })(typeof window !== 'undefined' ? window : globalThis);

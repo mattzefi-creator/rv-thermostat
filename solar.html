@@ -202,7 +202,7 @@ function render() {
     let body;
     if (st && st.error && /key/i.test(st.message)) body = `<div class="flag">The encryption key doesn't match this controller. Remove it and add it again with the key from VictronConnect.</div>`;
     else if (r && r.unsupported) body = `<div class="flag warning">This Victron device isn't a solar charger, so it isn't shown here.</div>`;
-    else if (!r) body = `<p class="note">${st && st.error ? 'Can\'t listen: ' + esc(st.message) : 'Waiting for its first broadcast. Make sure Instant readout is on in VictronConnect and you are within Bluetooth range.'}</p>`;
+    else if (!r || !fresh) body = waitingHelp(c, st);
     else body = `<div class="tiles">
         <div class="tile"><small>Solar</small><span>${r.solarW ?? '--'} W</span></div>
         <div class="tile"><small>To battery</small><span>${r.chargeA != null ? r.chargeA.toFixed(1) + ' A' : '--'}</span></div>
@@ -235,6 +235,25 @@ function onReading(id, r) {
   else if (r) { status[id] = null; readings[id] = r; }
   render();
 }
+// Say exactly where things stand for a controller that isn't giving readings.
+function waitingHelp(c, st) {
+  const s = Victron.stats[c.id] || { ads: 0, victron: 0, decoded: 0, watching: false };
+  const secs = s.since ? Math.round((Date.now() - s.since) / 1000) : 0;
+  const line = `<p class="note">Listening: ${s.watching ? 'yes' : 'no'} · broadcasts heard: ${s.ads} · with solar data: ${s.victron} · decoded: ${s.decoded}</p>`;
+  let tips;
+  if (st && st.error && !s.watching) tips = `Can't listen to it: ${esc(st.message)}`;
+  else if (!s.watching) tips = 'Not listening yet.';
+  else if (s.ads === 0 && secs < 20) tips = 'Listening for its broadcasts…';
+  else if (s.ads === 0) tips = `<b>Nothing heard after ${secs} seconds.</b> Check these, then reload the page:<ol style="margin-top:6px">
+      <li>Fully close <b>VictronConnect</b> (swipe it away). Controllers stop broadcasting while it's connected.</li>
+      <li>Turn on <b>Location</b> in Android's quick settings. Android needs it for Bluetooth listening.</li>
+      <li>In VictronConnect, check <b>Instant readout via Bluetooth</b> is on for this controller.</li>
+      <li>Be within about 30 feet of the controller.</li></ol>`;
+  else if (s.victron === 0) tips = '<b>Hearing the controller, but not its live data.</b> Turn on <b>Instant readout via Bluetooth</b> in VictronConnect (Product info), then reload.';
+  else if (s.decoded === 0) tips = `<b>Getting its data, but it won't decode</b> (${esc(s.err || 'unknown error')}). Remove this controller and add it again, pasting the key fresh from VictronConnect.`;
+  else tips = 'No new readings for a while. It may be out of range.';
+  return `<div class="note" style="color:var(--ink)">${tips}</div>${line}`;
+}
 function startWatching() {
   if (stopWatch) stopWatch();
   stopWatch = null;
@@ -261,6 +280,7 @@ async function addCtrl(showAll) {
   if (!Victron.hasBluetooth()) { blocked('This browser can\'t use Bluetooth at all. On iPhone, open this page in Bluefy; on Android, use Chrome.'); return; }
   try {
     picked = await Victron.pick(showAll);
+    Victron.remember(picked);
     log('Picked "' + (picked.name || '(no name)') + '". ' + Victron.capabilities() + ', device watch ' + (Victron.canWatch(picked) ? 'yes' : 'no'));
     if (!Victron.canWatch(picked) && !Victron.canScan()) {
       blocked(`This browser found ${picked.name || 'the controller'}, but it can't listen to the live data it broadcasts, so the Solar page can't show its readings here.`);
@@ -328,7 +348,7 @@ function startDemo() {
   log(Victron.capabilities());
   render();
   startWatching();
-  setInterval(render, 10000); // keep "heard x ago" current
+  setInterval(render, 5000); // keep "heard x ago" and the listening counters current
 })();
 </script>
 </body>

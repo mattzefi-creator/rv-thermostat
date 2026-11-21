@@ -3,632 +3,112 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#14181d">
+<meta name="theme-color" content="#f1f1ee" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#111110" media="(prefers-color-scheme: dark)">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>RV Climate Control</title>
+<title>RV</title>
 <style>
-/* Layout: one column phone app. Readout on top, mode row, setpoint dial, storage card, diagnostics. */
+/* Home: three big buttons with the last reading from each app. */
 :root {
-  --bg: #eef1f4;
-  --panel: #ffffff;
-  --ink: #15191e;
-  --muted: #5f6b77;
-  --line: #d5dbe1;
-  --heat: #d9480f;
-  --heat-soft: #fde7dc;
-  --cool: #1c6fd1;
-  --cool-soft: #dde9fa;
-  --ok: #1f7a4d;
-  --ok-soft: #dcf1e5;
-  --warn: #9a5b00;
-  --warn-soft: #fbedd2;
-  --bad: #b42318;
+  --bg: #f1f1ee; --panel: #fcfcfb; --ink: #0b0b0b; --muted: #52514e; --line: #e1e0d9; --soft: #f1f0ec;
+  --batt: #0ca30c; --batt-wash: #e3f4e3; --sun: #e8a200; --sun-wash: #fdf3d8; --heat: #d9480f; --heat-wash: #fde7dc;
   --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   color-scheme: light;
 }
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #101317; --panel: #1a1f25; --ink: #e9edf1; --muted: #93a0ad; --line: #2c343d;
-    --heat: #ff7a3d; --heat-soft: #3a2015; --cool: #5aa2ff; --cool-soft: #15263c;
-    --ok: #4cc38a; --ok-soft: #13301f; --warn: #f0b44c; --warn-soft: #36290f; --bad: #ff6b5e;
+    --bg: #111110; --panel: #1a1a19; --ink: #f0efec; --muted: #c3c2b7; --line: #2c2c2a; --soft: #232321;
+    --batt-wash: #12260f; --sun: #f2b53a; --sun-wash: #2e2410; --heat: #ff7a3d; --heat-wash: #3a2015;
     color-scheme: dark;
   }
 }
 * { box-sizing: border-box; }
-[hidden] { display: none !important; }
 html, body { margin: 0; }
 body {
   background: var(--bg); color: var(--ink); font: 16px/1.45 var(--font);
-  padding-top: max(12px, env(safe-area-inset-top, 0px));
-  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
-  padding-left: max(16px, env(safe-area-inset-left, 0px));
-  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding: max(16px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) max(24px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  -webkit-tap-highlight-color: transparent;
 }
-main { max-width: 460px; margin: 0 auto; display: grid; gap: 14px; }
-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-h1 { font-size: 1.05rem; margin: 0; letter-spacing: .01em; }
-h2 { font-size: .78rem; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin: 0 0 10px; font-weight: 600; }
-.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; }
-.pill { font-size: .78rem; padding: 4px 10px; border-radius: 999px; background: var(--line); color: var(--muted); white-space: nowrap; }
-.pill.on { background: var(--ok-soft); color: var(--ok); }
-.pill.demo { background: var(--warn-soft); color: var(--warn); }
-button { font: inherit; color: inherit; cursor: pointer; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); padding: 10px 14px; min-height: 44px; }
-button:focus-visible, input:focus-visible, select:focus-visible { outline: 3px solid var(--cool); outline-offset: 2px; }
-button:disabled { opacity: .5; cursor: default; }
-button.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 600; }
-button.heat { background: var(--heat); color: #fff; border-color: var(--heat); font-weight: 600; }
-label { display: grid; gap: 4px; font-size: .85rem; color: var(--muted); }
-input, select { font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-height: 44px; width: 100%; }
-.stack { display: grid; gap: 12px; }
-.row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-.row > * { flex: 1 1 auto; }
-.note { font-size: .85rem; color: var(--muted); margin: 0; }
-.note strong { color: var(--ink); }
-
-/* readout */
-.readout { display: grid; grid-template-columns: 1fr auto; align-items: end; gap: 8px; }
-.inside { font-size: 4.2rem; font-weight: 300; line-height: 1; font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
-.inside sup { font-size: 1.6rem; vertical-align: top; position: relative; top: .5rem; margin-left: 2px; }
-.running { text-align: right; font-size: .9rem; color: var(--muted); }
-.running b { display: block; font-size: 1.05rem; color: var(--ink); }
-.running b.heat { color: var(--heat); }
-.running b.cool { color: var(--cool); }
-
-/* modes */
-.modes { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
-.modes button { padding: 8px 4px; font-size: .88rem; }
-.modes button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); font-weight: 600; }
-.modes button[data-mode="4"][aria-pressed="true"] { background: var(--heat); border-color: var(--heat); color: #fff; }
-.modes button[data-mode="2"][aria-pressed="true"] { background: var(--cool); border-color: var(--cool); color: #fff; }
-
-/* setpoint */
-.sp { display: grid; grid-template-columns: 56px 1fr 56px; align-items: center; gap: 10px; }
-.pedit { border-top: 1px solid var(--line); padding-top: 12px; }
-.chip { touch-action: manipulation; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-.sp button { font-size: 1.6rem; padding: 0; height: 56px; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-.sp .val { text-align: center; }
-.sp .val span { font-size: 2.6rem; font-weight: 500; font-variant-numeric: tabular-nums; }
-.sp .val small { display: block; font-size: .8rem; color: var(--muted); }
-.sp + .sp { margin-top: 10px; }
-
-.power { display: flex; justify-content: space-between; align-items: center; width: 100%; min-height: 64px; padding: 0 20px; border-radius: 14px; font-size: 1.15rem; font-weight: 600; }
-.power b { font-size: 1.15rem; padding: 6px 16px; border-radius: 999px; background: var(--line); color: var(--muted); }
-.power[aria-pressed="true"] { background: var(--heat-soft); border-color: var(--heat); color: var(--heat); }
-.power[aria-pressed="true"] b { background: var(--heat); color: #fff; }
-.power.cool[aria-pressed="true"] { background: var(--cool-soft); border-color: var(--cool); color: var(--cool); }
-.power.cool[aria-pressed="true"] b { background: var(--cool); }
-.linkbar { justify-content: space-between; padding: 10px 12px 10px 16px; }
-.linkbar span { flex: 1 1 140px; font-size: .92rem; }
-.linkbar button { flex: 0 0 auto; }
-/* presets */
-.presets { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; align-items: start; }
-.preset { display: grid; gap: 6px; }
-.chip { min-height: 88px; border-radius: 14px; font-size: 1.25rem; font-weight: 700; background: var(--heat-soft); color: var(--heat); border: 2px solid transparent; display: grid; place-content: center; gap: 2px; }
-.chip:active { border-color: var(--heat); }
-.chip small { font-size: 1.6rem; font-weight: 500; color: var(--ink); font-variant-numeric: tabular-nums; }
-.preset select { min-height: 40px; padding: 6px 10px; font-size: .9rem; }
-.result { border-radius: 10px; padding: 10px 12px; font-size: .9rem; }
-.result.ok { background: var(--ok-soft); color: var(--ok); }
-.result.warn { background: var(--warn-soft); color: var(--warn); }
-.result.bad { background: var(--warn-soft); color: var(--bad); }
-
-details summary { cursor: pointer; color: var(--muted); font-size: .85rem; min-height: 32px; display: flex; align-items: center; }
-pre { font: .75rem/1.4 var(--mono); background: var(--bg); border-radius: 8px; padding: 10px; overflow-x: auto; max-height: 260px; margin: 8px 0 0; white-space: pre-wrap; word-break: break-all; }
-.log { max-height: 160px; }
-.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(16px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 10px; font-size: .9rem; max-width: calc(100% - 32px); box-shadow: 0 6px 20px rgb(0 0 0 / .2); }
-@media (prefers-reduced-motion: no-preference) { .busy { animation: pulse 1s ease-in-out infinite alternate; } @keyframes pulse { to { opacity: .55; } } }
+main { max-width: 480px; margin: 0 auto; display: grid; gap: 14px; }
+h1 { font-size: 1.5rem; margin: 6px 2px 4px; font-weight: 700; letter-spacing: -.01em; }
+.card {
+  display: grid; grid-template-columns: 64px 1fr auto; align-items: center; gap: 16px;
+  min-height: 116px; padding: 18px 18px 18px 20px; border-radius: 22px;
+  background: var(--panel); box-shadow: 0 0 0 1px var(--line); color: inherit; text-decoration: none;
+  transition: transform .1s;
+}
+.card:active { transform: scale(.985); }
+.card:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+.icon { width: 64px; height: 64px; border-radius: 18px; display: grid; place-items: center; }
+.icon svg { width: 34px; height: 34px; }
+.batt .icon { background: var(--batt-wash); color: var(--batt); }
+.sun .icon { background: var(--sun-wash); color: var(--sun); }
+.heat .icon { background: var(--heat-wash); color: var(--heat); }
+.name { font-size: 1.3rem; font-weight: 700; }
+.val { font-size: 1rem; color: var(--ink); font-variant-numeric: tabular-nums; margin-top: 2px; }
+.when { font-size: .8rem; color: var(--muted); }
+.chev { color: var(--muted); font-size: 1.6rem; line-height: 1; }
+@media (prefers-reduced-motion: reduce) { .card { transition: none; } }
 </style>
 </head>
 <body>
 <main>
-  <header>
-    <h1>RV Climate Control</h1>
-    <span id="conn" class="pill">Not connected</span>
-  </header>
+  <h1>RV</h1>
 
-  <!-- Connect / login -->
-  <section id="setup" class="panel stack">
-    <h2>Connect to thermostat</h2>
-    <p id="nobt" class="note" hidden>This browser can't use Bluetooth. On iPhone, open this page in the free <strong>Bluefy</strong> browser. On Android or a Mac, use <strong>Chrome</strong>. You can still try the demo below.</p>
-    <div id="login" class="stack">
-      <p class="note">Enter your Micro-Air app password once. It's saved only on this phone. Close the Micro-Air app first, because the thermostat accepts one Bluetooth connection at a time.</p>
-      <label>Password<input id="password" type="password" autocomplete="current-password"></label>
-      <label>Email (optional)<input id="email" type="email" autocomplete="username" inputmode="email"></label>
-    </div>
-    <p id="saved" class="note" hidden>Login saved on this phone. <a href="#" id="changeLogin">Change</a></p>
-    <div class="row">
-      <button id="btnConnect" class="primary">Connect</button>
-      <button id="btnDemo">Try demo</button>
-    </div>
-    <p id="autoMsg" class="note" hidden>Connecting to your thermostat…</p>
-    <details>
-      <summary>Thermostat not found?</summary>
-      <p class="note">Tap below to see every nearby Bluetooth device, then pick yours.</p>
-      <button id="btnAll">Show all nearby devices</button>
-    </details>
-    <pre id="setupLog" class="log" hidden></pre>
-  </section>
+  <a class="card batt" href="battery.html">
+    <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="16" height="11" rx="2"/><path d="M21 11v3M7 11v3M10 11v3"/></svg></div>
+    <div><div class="name">Battery</div><div class="val" id="bVal">Tap to open</div><div class="when" id="bWhen"></div></div>
+    <span class="chev" aria-hidden="true">›</span>
+  </a>
 
-  <!-- Controls -->
-  <section id="controls" class="stack" hidden>
-    <div id="linkBar" class="panel row linkbar" hidden>
-      <span id="linkMsg">Not connected</span>
-      <button id="btnLink" class="primary">Connect</button>
-    </div>
-    <div class="panel stack">
-      <div class="readout">
-        <div class="inside" aria-label="Inside temperature"><span id="tIn">--</span><sup>°F</sup></div>
-        <div class="running">Right now<b id="run">--</b></div>
-      </div>
-      <button id="power" class="power" aria-pressed="false" hidden><span id="powerLabel">Heat</span><b id="powerState">Off</b></button>
-      <div id="modes" class="modes" role="group" aria-label="Mode">
-        <button data-mode="0">Off</button>
-        <button data-mode="1">Fan</button>
-        <button data-mode="2">Cool</button>
-        <button data-mode="4">Heat</button>
-        <button data-mode="11">Auto</button>
-      </div>
-    </div>
+  <a class="card sun" href="solar.html">
+    <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg></div>
+    <div><div class="name">Solar</div><div class="val" id="sVal">Tap to open</div><div class="when" id="sWhen"></div></div>
+    <span class="chev" aria-hidden="true">›</span>
+  </a>
 
-    <div id="presetPanel" class="panel stack">
-      <h2>Presets</h2>
-      <div class="presets">
-        <button id="btnNight" class="chip" data-preset="night">Night<small id="nightLabel">35°</small></button>
-        <button id="btnComfort" class="chip" data-preset="comfort">Comfort<small id="comfortLabel">61°</small></button>
-      </div>
-      <div id="presetEdit" class="stack pedit" hidden>
-        <h2 id="peTitle">Night temperature</h2>
-        <div class="sp">
-          <button id="peDown" aria-label="Lower preset">−</button>
-          <div class="val"><span id="peVal">35°</span></div>
-          <button id="peUp" aria-label="Raise preset">+</button>
-        </div>
-        <button id="peDone" class="primary">Done</button>
-      </div>
-      <div id="storeResult" class="result" hidden></div>
-    </div>
-
-    <div id="spPanel" class="panel">
-      <h2 id="spTitle">Set to</h2>
-      <div id="spSingle" class="sp">
-        <button data-adj="-1" aria-label="Lower">−</button>
-        <div class="val"><span id="spVal">--</span></div>
-        <button data-adj="1" aria-label="Raise">+</button>
-      </div>
-      <div id="spAuto" hidden>
-        <div class="sp">
-          <button data-auto="heat" data-adj="-1" aria-label="Lower heat to">−</button>
-          <div class="val"><span id="autoHeat">--</span><small>Heat to</small></div>
-          <button data-auto="heat" data-adj="1" aria-label="Raise heat to">+</button>
-        </div>
-        <div class="sp">
-          <button data-auto="cool" data-adj="-1" aria-label="Lower cool to">−</button>
-          <div class="val"><span id="autoCool">--</span><small>Cool to</small></div>
-          <button data-auto="cool" data-adj="1" aria-label="Raise cool to">+</button>
-        </div>
-      </div>
-    </div>
-
-    <div class="panel stack">
-      <div class="row">
-        <button id="btnRefresh">Refresh</button>
-        <button id="btnDisconnect">Disconnect</button>
-      </div>
-      <label>Season
-        <select id="season">
-          <option value="winter">Winter: heat on or off</option>
-          <option value="summer">Summer: cool on or off</option>
-          <option value="all">All modes</option>
-        </select>
-      </label>
-      <p class="note" id="updated">Not updated yet</p>
-      <details>
-        <summary>Diagnostics</summary>
-        <pre id="raw">No data yet</pre>
-        <pre id="log" class="log"></pre>
-      </details>
-    </div>
-  </section>
+  <a class="card heat" href="thermostat.html">
+    <div class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.8V5a2 2 0 0 0-4 0v9.8a4 4 0 1 0 4 0z"/><path d="M12 10v6"/></svg></div>
+    <div><div class="name">Thermostat</div><div class="val" id="tVal">Tap to open</div><div class="when" id="tWhen"></div></div>
+    <span class="chev" aria-hidden="true">›</span>
+  </a>
 </main>
-<div id="toast" class="toast" role="status" hidden></div>
-
 <script>
 'use strict';
-// ---------- Protocol (from community reverse-engineering of the EasyTouch BLE interface) ----------
-const SERVICE  = '000000ff-0000-1000-8000-00805f9b34fb';
-const CH_PASS  = '0000dd01-0000-1000-8000-00805f9b34fb'; // write login password
-const CH_CMD   = '0000ee01-0000-1000-8000-00805f9b34fb'; // write JSON command
-const CH_RET   = '0000ff01-0000-1000-8000-00805f9b34fb'; // read JSON reply
-const MODE_NAMES = { 0: 'Off', 1: 'Fan only', 2: 'Cool', 3: 'Cooling', 4: 'Heat', 5: 'Heating', 6: 'Dry', 11: 'Auto' };
-const LIMITS = { heatMin: 32, heatMax: 90, coolMin: 55, coolMax: 95 }; // app-side limits; 32°F floor is ours, not the thermostat's
-const ZONE = 0;
-
-const sleep = ms => new Promise(r => setTimeout(r, ms));
-const enc = new TextEncoder(), dec = new TextDecoder();
+// Each app saves its last reading on this phone; show those here so the home screen is useful at a glance.
 const $ = id => document.getElementById(id);
-// Bluefy (iPhone) and older browsers may only have writeValue.
-const write = (ch, bytes) => ch.writeValueWithResponse ? ch.writeValueWithResponse(bytes) : ch.writeValue(bytes);
-// Bluetooth calls can hang forever on iPhone; give up after ms.
-const withTimeout = (p, ms, what) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error(what + ' timed out')), ms))]);
-
-function log(msg) {
-  const line = new Date().toLocaleTimeString() + '  ' + msg;
-  const el = $('log'); el.textContent = (line + '\n' + el.textContent).slice(0, 6000);
+const read = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch (e) { return null; } };
+function ago(t) {
+  if (!t) return '';
+  const s = Math.round((Date.now() - t) / 1000);
+  if (s < 90) return 'Updated just now';
+  if (s < 5400) return 'Updated ' + Math.round(s / 60) + ' min ago';
+  return 'Updated ' + new Date(t).toLocaleString([], { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 }
-
-function parseStatus(text) {
-  const s = JSON.parse(text);
-  const z = s.Z_sts && (s.Z_sts[String(ZONE)] || s.Z_sts[Object.keys(s.Z_sts)[0]]);
-  if (!z || z.length < 16) throw new Error('Unexpected status format');
-  return {
-    autoHeat: z[0], autoCool: z[1], cool: z[2], heat: z[3], dry: z[4],
-    mode: z[10], inside: z[12], running: z[15], raw: s,
-  };
-}
-
-// Real thermostat over Web Bluetooth
-class EasyTouch {
-  constructor(email, password) { this.email = email; this.password = password; this.q = Promise.resolve(); }
-  // Serialize every transaction; the thermostat handles one at a time.
-  run(fn) { const p = this.q.then(fn, fn); this.q = p.catch(() => {}); return p; }
-  // Reuse the thermostat picked last time, skipping the chooser, where the browser allows it.
-  async remembered() {
-    const id = load('et_dev');
-    log('Browser support: getDevices ' + (navigator.bluetooth.getDevices ? 'yes' : 'no') + ', watchAdvertisements ' + ('watchAdvertisements' in (window.BluetoothDevice?.prototype || {}) ? 'yes' : 'no'));
-    if (!id || !navigator.bluetooth.getDevices) return false;
-    try {
-      const all = await navigator.bluetooth.getDevices();
-      const d = all.find(x => x.id === id) || all.find(x => (x.name || '').replace(/\s/g, '').startsWith('EasyTouch'));
-      if (!d) { log('Saved thermostat not in the browser\'s list'); return false; }
-      this.use(d); log('Reusing saved thermostat "' + (d.name || '') + '"');
-      // A remembered device often can't connect until the browser has heard it advertise again.
-      if (d.watchAdvertisements) {
-        const ac = new AbortController();
-        try {
-          await withTimeout(new Promise(res => {
-            d.addEventListener('advertisementreceived', res, { once: true });
-            d.watchAdvertisements({ signal: ac.signal }).catch(() => {});
-          }), 8000, 'Waiting for thermostat');
-          log('Thermostat is in range');
-        } catch (e) { log(e.message); } finally { ac.abort(); }
-      }
-      return true;
-    } catch (e) { log('Saved-device lookup failed: ' + e.message); return false; }
-  }
-  use(d) {
-    this.device = d;
-    d.addEventListener('gattserverdisconnected', () => { this.chars = null; log('Bluetooth disconnected'); onLink(false); });
-  }
-  // auto: only try the saved thermostat (no chooser, works without a tap). Otherwise always show the chooser.
-  async pick(showAll, auto) {
-    if (auto) { if (await this.remembered()) return; throw new Error('No saved thermostat'); }
-    this.use(await navigator.bluetooth.requestDevice(showAll
-      ? { acceptAllDevices: true, optionalServices: [SERVICE] }
-      : { filters: [{ namePrefix: 'Easy Touch' }, { namePrefix: 'EasyTouch' }], optionalServices: [SERVICE] }));
-    store('et_dev', this.device.id);
-    log('Picked "' + (this.device.name || '(no name)') + '" id ' + this.device.id);
-  }
-  async ensure() {
-    if (this.chars && this.device.gatt.connected) return;
-    log('Connecting…');
-    const server = await withTimeout(this.device.gatt.connect(), 10000, 'Bluetooth connect');
-    const svc = await withTimeout(server.getPrimaryService(SERVICE), 8000, 'Finding thermostat service');
-    this.chars = {
-      pass: await svc.getCharacteristic(CH_PASS),
-      cmd: await svc.getCharacteristic(CH_CMD),
-      ret: await svc.getCharacteristic(CH_RET),
-    };
-    await write(this.chars.pass, enc.encode(this.password));
-    log('Logged in');
-    onLink(true);
-  }
-  async send(obj) {
-    await this.ensure();
-    log('→ ' + JSON.stringify(obj).replace(this.email, '…'));
-    await write(this.chars.cmd, enc.encode(JSON.stringify(obj)));
-  }
-  status() {
-    return this.run(async () => {
-      await this.send({ Type: 'Get Status', Zone: ZONE, ...(this.email ? { EM: this.email } : {}), TM: Math.floor(Date.now() / 1000) });
-      await sleep(250);
-      const v = await withTimeout(this.chars.ret.readValue(), 8000, 'Reading status');
-      return parseStatus(dec.decode(v));
-    });
-  }
-  change(changes) { return this.run(() => this.send({ Type: 'Change', Changes: { zone: ZONE, ...changes } })); }
-  disconnect() { try { this.device && this.device.gatt.disconnect(); } catch (e) {} }
-}
-
-// Simulated thermostat for trying the app. It enforces a 40°F heat floor, like the real unit is suspected to.
-class Demo {
-  constructor() { this.s = { autoHeat: 64, autoCool: 74, cool: 74, heat: 66, dry: 72, mode: 4, inside: 47, running: 5 }; }
-  async pick() {}
-  async status() { await sleep(300); onLink(true); return { ...this.s, raw: { demo: true, Z_sts: { 0: '(simulated)' } } }; }
-  async change(c) {
-    await sleep(300); log('→ (demo) ' + JSON.stringify(c));
-    if ('mode' in c) this.s.mode = c.mode;
-    if ('power' in c && c.power === 0) this.s.mode = 0;
-    if ('heat_sp' in c) this.s.heat = Math.max(40, c.heat_sp);
-    if ('cool_sp' in c) this.s.cool = c.cool_sp;
-    if ('autoHeat_sp' in c) this.s.autoHeat = Math.max(40, c.autoHeat_sp);
-    if ('autoCool_sp' in c) this.s.autoCool = c.autoCool_sp;
-    this.s.running = this.s.mode === 4 ? (this.s.inside < this.s.heat ? 5 : 4) : this.s.mode;
-  }
-  disconnect() {}
-}
-
-// ---------- App state & UI ----------
-let dev = null, st = null, pollTimer = null, pending = null;
-
-let linked = false;
-function onLink(up, msg) {
-  linked = up;
-  const c = $('conn');
-  if (dev instanceof Demo) { c.textContent = 'Demo'; c.className = 'pill demo'; $('linkBar').hidden = true; return; }
-  c.textContent = up ? 'Connected' : 'Not connected'; c.className = 'pill' + (up ? ' on' : '');
-  $('linkBar').hidden = up;
-  if (!up) $('linkMsg').textContent = msg || 'Not connected. Showing the last reading.';
-}
-
-let toastT;
-function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => t.hidden = true, 3500); }
-
-function store(k, v) { try { v == null ? localStorage.removeItem(k) : localStorage.setItem(k, v); } catch (e) {} }
-function load(k) { try { return localStorage.getItem(k) || ''; } catch (e) { return ''; } }
-
-// Season: winter/summer show a single power switch for heat/cool; "all" shows every mode.
-function season() { return load('et_season') || 'winter'; }
-function renderSeason() {
-  const s = season(), simple = s !== 'all';
-  $('power').hidden = !simple; $('modes').hidden = simple;
-  $('power').classList.toggle('cool', s === 'summer');
-  $('powerLabel').textContent = s === 'summer' ? 'Cooling' : 'Heat';
-  $('presetPanel').hidden = s === 'summer';
-  const on = !!st && st.mode === (s === 'summer' ? 2 : 4);
-  $('power').setAttribute('aria-pressed', String(on));
-  $('powerState').textContent = on ? 'On' : 'Off';
-}
-
 function render() {
-  renderSeason();
-  if (!st) return;
-  $('tIn').textContent = st.inside;
-  const r = $('run');
-  r.textContent = MODE_NAMES[st.running] ?? ('Mode ' + st.running);
-  r.className = (st.running === 5) ? 'heat' : (st.running === 3) ? 'cool' : '';
-  document.querySelectorAll('.modes button').forEach(b => b.setAttribute('aria-pressed', String(+b.dataset.mode === st.mode)));
-
-  const auto = st.mode === 11, single = st.mode === 2 || st.mode === 4 || st.mode === 6;
-  $('spPanel').hidden = !(auto || single);
-  $('spAuto').hidden = !auto; $('spSingle').hidden = !single;
-  const key = st.mode === 2 ? 'cool' : st.mode === 6 ? 'dry' : 'heat';
-  $('spTitle').textContent = auto ? 'Keep between' : (st.mode === 2 ? 'Cool to' : st.mode === 6 ? 'Dry at' : 'Heat to');
-  $('spVal').textContent = (pending?.key === key ? pending.value : st[key]) + '°';
-  $('autoHeat').textContent = (pending?.key === 'autoHeat' ? pending.value : st.autoHeat) + '°';
-  $('autoCool').textContent = (pending?.key === 'autoCool' ? pending.value : st.autoCool) + '°';
-  $('raw').textContent = JSON.stringify(st.raw, null, 1);
-  $('updated').textContent = (st.cached ? 'Last reading ' : 'Updated ') + new Date(st.at || Date.now()).toLocaleString([], { hour: 'numeric', minute: '2-digit', month: 'short', day: 'numeric' });
-}
-
-// Remember the last reading so the app opens straight to the controls.
-function saveLast() { if (st && !(dev instanceof Demo)) { const { raw, ...rest } = st; store('et_last', JSON.stringify({ ...rest, at: Date.now() })); } }
-function gotStatus(s) { st = s; st.at = Date.now(); render(); saveLast(); }
-
-async function refresh() {
-  if (!dev || dev instanceof Demo && !linked) return;
-  try { gotStatus(await dev.status()); }
-  catch (e) { log('Status failed: ' + e.message); onLink(false, 'Lost the connection. ' + hint(e)); }
-}
-
-function hint(e) {
-  const m = String(e && e.message || e);
-  if (/cancel/i.test(m)) return 'No thermostat was picked.';
-  if (/GATT|disconnect|network|timed out/i.test(m)) return 'Move closer, close the Micro-Air app, and tap Connect.';
-  return m;
-}
-
-function startPolling() { stopPolling(); pollTimer = setInterval(() => { if (!document.hidden) refresh(); }, 20000); }
-function stopPolling() { clearInterval(pollTimer); }
-
-function showControls() { $('setup').hidden = true; $('controls').hidden = false; }
-
-// auto = silent reconnect to the saved thermostat on open (no tap, no chooser).
-async function connect(demo, showAll, auto) {
-  const email = auto ? load('et_email') : $('email').value.trim();
-  const pw = auto ? load('et_pw') : ($('password').value || load('et_pw'));
-  if (!demo) {
-    if (!pw) { showControlsOrSetup(); showLogin(true); toast('Enter your Micro-Air app password first.'); return; }
-    store('et_email', email || null); store('et_pw', pw);
+  const b = read('wc_last');
+  if (b && b.soc != null) {
+    const w = Math.round(Math.abs((b.current || 0) * (b.voltage || 0)));
+    const flow = b.current > 0.3 ? `charging ${w} W` : b.current < -0.3 ? `using ${w} W` : 'resting';
+    $('bVal').textContent = `${b.soc}% · ${flow}`; $('bWhen').textContent = ago(b.at);
   }
-  dev = demo ? new Demo() : new EasyTouch(email, pw);
-  const btn = demo ? $('btnDemo') : showAll ? $('btnAll') : $('controls').hidden ? $('btnConnect') : $('btnLink');
-  btn.disabled = true; btn.classList.add('busy');
-  if (!demo && !$('controls').hidden) $('linkMsg').textContent = 'Connecting…';
-  try {
-    await dev.pick(showAll, auto);
-    gotStatus(await dev.status());
-    showControls(); startPolling();
-  } catch (e) {
-    log('Connect failed: ' + e.message);
-    if (auto) { onLink(false, 'Tap anywhere to connect.'); armTapToConnect(); return; }
-    toast(hint(e)); onLink(false, 'Couldn\'t connect. ' + hint(e));
-    $('setupLog').hidden = false; $('setupLog').textContent = $('log').textContent;
-  } finally { btn.disabled = false; btn.classList.remove('busy'); }
-}
-
-// iPhone only lets a page start Bluetooth from a tap, so the first tap anywhere connects.
-let tapArmed = false;
-function armTapToConnect() {
-  if (tapArmed || !('bluetooth' in navigator) || !load('et_pw')) return;
-  tapArmed = true;
-  const go = e => {
-    if (linked || e.target.closest('select, input, #btnLink, #btnAll, #btnDemo, #btnConnect, details')) return;
-    document.removeEventListener('click', go, true); tapArmed = false;
-    e.stopPropagation(); e.preventDefault();
-    connect(false);
-  };
-  document.addEventListener('click', go, true);
-}
-
-// Open straight to the controls when we've connected before; the login screen is only for first use.
-function showControlsOrSetup() {
-  const last = load('et_last');
-  if (load('et_pw')) {
-    try { st = last ? { ...JSON.parse(last), cached: true } : null; } catch (e) { st = null; }
-    showControls(); render(); onLink(false);
-    return true;
+  const ctrls = read('vc_ctrls') || [], last = read('vc_last') || {};
+  const rs = ctrls.map(c => last[c.id]).filter(r => r && r.solarW != null);
+  if (rs.length) {
+    const w = rs.reduce((t, r) => t + r.solarW, 0), y = rs.reduce((t, r) => t + (r.yieldWh || 0), 0);
+    $('sVal').textContent = `${w} W · ${y >= 1000 ? (y / 1000).toFixed(1) + ' kWh' : y + ' Wh'} today`;
+    $('sWhen').textContent = ago(Math.max(...rs.map(r => r.at)));
   }
-  return false;
-}
-
-// Send a change, then read back and report what the thermostat actually kept.
-async function apply(changes, check) {
-  if (!dev || !linked) { pending = null; render(); toast('Not connected. Tap Connect first.'); return; }
-  try {
-    await dev.change(changes);
-    await sleep(500);
-    pending = null; gotStatus(await dev.status());
-    if (check) {
-      const got = st[check.key];
-      if (got === check.want) return { ok: true, got };
-      return { ok: false, got };
-    }
-  } catch (e) { pending = null; log('Change failed: ' + e.message); toast('Change didn\'t go through. ' + hint(e)); render(); }
-}
-
-// Debounce +/- taps so a few taps send one command.
-let adjT;
-function adjust(key, delta) {
-  if (!st) return;
-  const lo = key === 'cool' || key === 'autoCool' ? LIMITS.coolMin : LIMITS.heatMin;
-  const hi = key === 'cool' || key === 'autoCool' ? LIMITS.coolMax : LIMITS.heatMax;
-  const cur = pending?.key === key ? pending.value : st[key];
-  pending = { key, value: Math.min(hi, Math.max(lo, cur + delta)) };
-  render();
-  clearTimeout(adjT);
-  adjT = setTimeout(async () => {
-    const field = { heat: 'heat_sp', cool: 'cool_sp', dry: 'dry_sp', autoHeat: 'autoHeat_sp', autoCool: 'autoCool_sp' }[key];
-    const want = pending.value;
-    const res = await apply({ power: 1, [field]: want }, { key, want });
-    if (res && !res.ok) toast(`Thermostat kept ${res.got}° instead of ${want}°.`);
-  }, 1200);
-}
-
-// Presets: switch to Heat at a fixed setpoint, then report what the thermostat kept.
-async function preset(name, want, btn) {
-  const out = $('storeResult');
-  btn.disabled = true; btn.classList.add('busy');
-  out.hidden = false; out.className = 'result'; out.textContent = `Setting ${name} (heat to ${want}°F)…`;
-  const res = await apply({ power: 1, mode: 4, heat_sp: want }, { key: 'heat', want });
-  btn.disabled = false; btn.classList.remove('busy');
-  if (!res) { out.className = 'result bad'; out.textContent = 'The command didn\'t go through. Check the connection and try again.'; return; }
-  if (res.ok) {
-    out.className = 'result ok';
-    out.textContent = `${name} is on. Heating to ${res.got}°F.`;
-  } else {
-    out.className = 'result warn';
-    out.textContent = `The thermostat changed ${want}°F to ${res.got}°F, so its own firmware enforces that floor. A separate 12V freeze thermostat on the furnace wire can hold it lower.`;
+  const t = read('et_last');
+  if (t && t.inside != null) {
+    const modes = { 0: 'off', 1: 'fan', 2: 'cool', 4: 'heat', 6: 'dry', 11: 'auto' };
+    const running = t.running === 5 ? ', heating' : t.running === 3 ? ', cooling' : '';
+    $('tVal').textContent = `${t.inside}°F inside · ${modes[t.mode] || 'mode ' + t.mode}${running}`;
+    $('tWhen').textContent = ago(t.at);
   }
-  log(`${name}: asked ${want}, thermostat kept ${res.got}`);
 }
-
-// Tap for one step; hold to keep stepping. step() returns false to stop.
-function holdRepeat(b, step) {
-  let t = null;
-  const stop = () => { clearTimeout(t); clearInterval(t); t = null; };
-  b.addEventListener('pointerdown', e => {
-    e.preventDefault(); stop();
-    if (!step()) return;
-    t = setTimeout(() => { t = setInterval(step, 140); }, 400);
-  });
-  ['pointerup', 'pointerleave', 'pointercancel'].forEach(ev => b.addEventListener(ev, stop));
-  b.addEventListener('click', e => { if (e.detail === 0) step(); }); // keyboard
-  b.addEventListener('contextmenu', e => e.preventDefault());
-}
-
-// Show the login fields only until a password is saved.
-function showLogin(show) { $('login').hidden = !show; $('saved').hidden = show; }
-
-// ---------- Wire up ----------
-(function init() {
-  showLogin(!load('et_pw'));
-  $('changeLogin').onclick = e => { e.preventDefault(); showLogin(true); };
-  if (!('bluetooth' in navigator)) { $('nobt').hidden = false; $('btnConnect').disabled = true; $('btnAll').disabled = true; }
-  $('email').value = load('et_email'); $('password').value = load('et_pw');
-  // Presets: tap to apply, hold to change the temperature.
-  const PRESETS = { night: { name: 'Night', def: 35 }, comfort: { name: 'Comfort', def: 61 } };
-  const ptemp = k => +load('et_' + k) || PRESETS[k].def;
-  const plabels = () => { for (const k in PRESETS) $(k + 'Label').textContent = ptemp(k) + '°'; };
-  plabels();
-  let editing = null;
-  const showEdit = k => {
-    editing = k;
-    $('peTitle').textContent = PRESETS[k].name + ' temperature';
-    $('peVal').textContent = ptemp(k) + '°';
-    $('presetEdit').hidden = false;
-  };
-  const bump = d => {
-    if (!editing) return true;
-    const v = Math.min(80, Math.max(LIMITS.heatMin + 1, ptemp(editing) + d));
-    store('et_' + editing, String(v)); $('peVal').textContent = v + '°'; plabels();
-    return true;
-  };
-  holdRepeat($('peDown'), () => bump(-1));
-  holdRepeat($('peUp'), () => bump(1));
-  $('peDone').onclick = () => { editing = null; $('presetEdit').hidden = true; };
-  document.querySelectorAll('[data-preset]').forEach(b => {
-    const k = b.dataset.preset;
-    let t = null, long = false;
-    b.addEventListener('pointerdown', () => { long = false; t = setTimeout(() => { long = true; t = null; navigator.vibrate?.(15); showEdit(k); }, 600); });
-    const cancel = () => { clearTimeout(t); t = null; };
-    b.addEventListener('pointerleave', cancel); b.addEventListener('pointercancel', cancel);
-    b.addEventListener('pointerup', cancel);
-    b.addEventListener('click', e => { if (long) { e.preventDefault(); long = false; return; } preset(PRESETS[k].name, ptemp(k), b); });
-    b.addEventListener('contextmenu', e => e.preventDefault());
-  });
-
-  $('btnConnect').onclick = () => connect(false);
-  $('btnLink').onclick = () => connect(false);
-  $('season').value = season();
-  $('season').onchange = () => { store('et_season', $('season').value); render(); };
-  $('power').onclick = () => {
-    if (!st || !linked) { toast('Not connected. Tap Connect first.'); return; }
-    const m = season() === 'summer' ? 2 : 4, turnOn = st.mode !== m;
-    st.mode = turnOn ? m : 0; render();
-    apply(turnOn ? { power: 1, mode: m } : { power: 0, mode: 0 });
-  };
-  $('btnAll').onclick = () => connect(false, true);
-  $('btnDemo').onclick = () => connect(true);
-  $('btnRefresh').onclick = refresh;
-  $('btnDisconnect').onclick = () => {
-    stopPolling(); dev && dev.disconnect(); dev = null; st = null; onLink(false);
-    $('controls').hidden = true; $('setup').hidden = false; $('storeResult').hidden = true;
-  };
-  document.querySelectorAll('.modes button').forEach(b => b.onclick = () => {
-    const m = +b.dataset.mode;
-    if (!st || !linked) { toast('Not connected. Tap Connect first.'); return; }
-    st.mode = m; render();
-    apply(m === 0 ? { power: 0, mode: 0 } : { power: 1, mode: m });
-  });
-  // + / −: tap for one degree, hold to keep changing. One command is sent after you let go.
-  document.querySelectorAll('[data-adj]').forEach(b => holdRepeat(b, () => {
-    const d = +b.dataset.adj;
-    if (!st || !linked) { toast('Not connected. Tap Connect first.'); return false; }
-    if (b.dataset.auto) adjust(b.dataset.auto === 'heat' ? 'autoHeat' : 'autoCool', d);
-    else adjust(st.mode === 2 ? 'cool' : st.mode === 6 ? 'dry' : 'heat', d);
-    return true;
-  }));
-  document.addEventListener('visibilitychange', () => { if (!document.hidden && dev) refresh(); });
-  // Open on the controls with the last reading, then try a silent reconnect.
-  const onControls = showControlsOrSetup();
-  if ('bluetooth' in navigator && load('et_pw') && load('et_dev') && navigator.bluetooth.getDevices) {
-    if (onControls) $('linkMsg').textContent = 'Connecting…'; else $('autoMsg').hidden = false;
-    connect(false, false, true).finally(() => { $('autoMsg').hidden = true; });
-  } else if (onControls) {
-    onLink(false, 'Tap anywhere to connect.'); armTapToConnect();
-  }
-})();
+render();
+document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 </script>
 </body>
 </html>

@@ -58,6 +58,8 @@ main { max-width: 480px; margin: 0 auto; display: grid; gap: 12px; }
 header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 2px; }
 h1 { font-size: 1.15rem; margin: 0; font-weight: 650; letter-spacing: -.01em; }
 h2 { font-size: .95rem; margin: 0; font-weight: 600; }
+.titlebar { display: flex; align-items: center; gap: 10px; }
+.home { color: var(--muted); text-decoration: none; font-size: .95rem; padding: 6px 4px; }
 .panel { background: var(--panel); border-radius: 18px; padding: 18px; box-shadow: 0 0 0 1px var(--line); }
 .head { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 12px; }
 .pill { font-size: .78rem; padding: 4px 10px; border-radius: 999px; background: var(--soft); color: var(--muted); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
@@ -102,6 +104,12 @@ select, input[type=time] { font: inherit; color: var(--ink); background: var(--s
 .watts small { font-size: 1rem; color: var(--muted); font-weight: 500; margin-left: 3px; }
 .sub { display: flex; gap: 14px; font-size: .9rem; color: var(--muted); font-variant-numeric: tabular-nums; }
 .sub b { color: var(--ink); font-weight: 600; }
+.split { display: grid; gap: 3px; margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); font-size: .88rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.split span { display: flex; align-items: center; gap: 6px; }
+.split b { color: var(--ink); font-weight: 600; margin-left: auto; }
+.split i { width: 8px; height: 8px; border-radius: 50%; }
+.split i.sun { background: #e8a200; }
+.split i.use { background: var(--series); }
 
 /* forecast */
 .fc { border-radius: 18px; padding: 16px 18px; display: grid; gap: 10px; background: var(--panel); box-shadow: 0 0 0 1px var(--line); position: relative; overflow: hidden; }
@@ -225,7 +233,7 @@ pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px;
 <body>
 <main>
   <header>
-    <h1>RV Battery</h1>
+    <div class="titlebar"><a class="home" href="./">‹ Home</a><h1>Battery</h1></div>
     <span id="conn" class="pill">Not connected</span>
   </header>
 
@@ -261,6 +269,10 @@ pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px;
         <div id="flow" class="flow"><i></i><span id="flowText">--</span></div>
         <div class="watts"><span id="watts">--</span><small>W</small></div>
         <div class="sub"><span><b id="volt">--</b> V</span><span><b id="amps">--</b> A</span></div>
+        <div class="split" id="split" hidden>
+          <span><i class="sun"></i>Solar <b id="splitSolar">--</b></span>
+          <span><i class="use"></i>RV using <b id="splitUse">--</b></span>
+        </div>
       </div>
     </div>
 
@@ -404,6 +416,7 @@ pre { font: .75rem/1.4 var(--mono); background: var(--soft); border-radius: 8px;
 </div>
 <div id="toast" class="toast" role="status" hidden></div>
 
+<script src="victron.js"></script>
 <script id="protocol">
 'use strict';
 // ---------- Protocol ----------
@@ -819,6 +832,10 @@ function forecast(s) {
       return { ...out, kind: 'Charging', head: s.soc >= 99 ? 'Full' : `Charging at ${w(a)} W`,
         body: s.soc >= 99 ? '' : `Full around <b>${when(now + full * HOUR)}</b> at this rate.` };
     }
+    // With solar data, a resting battery can mean solar is exactly covering what the RV uses.
+    const use = solarTot && Date.now() - solarTot.at < 2 * MIN ? Math.round(solarTot.outW - s.current * s.voltage) : 0;
+    if (use > 5) return { ...out, kind: 'Solar covering it', head: 'Solar is covering everything right now',
+      body: `Solar ${Math.round(solarTot.solarW)} W, RV using ${use} W, so the battery isn't being drawn down.` };
     return { ...out, level: 0, cls: 'idle', icon: ICONS.idle, kind: 'Resting', head: 'Nothing is drawing power', body: '' };
   }
   const hRes = (s.remainAh - resAh) / -a, hEmpty = s.remainAh / -a;
@@ -1156,6 +1173,21 @@ async function readSettings() {
   } finally { b.disabled = false; b.classList.remove('busy'); b.textContent = 'Read battery settings'; }
 }
 
+// ---------- Solar split (Victron controllers, if set up on the Solar page) ----------
+// The battery only sees the net flow. With the solar charger's output known,
+// what the RV is using = charger output to the battery − battery net (charging is positive).
+let solarTot = null;
+function renderSplit() {
+  const t = window.Victron ? Victron.totals() : null;
+  solarTot = t;
+  const ok = t && st && !st.cached && Date.now() - (st.at || 0) < 2 * MIN;
+  $('split').hidden = !ok;
+  if (!ok) return;
+  const net = st.current * st.voltage;
+  $('splitSolar').textContent = Math.round(t.solarW) + ' W';
+  $('splitUse').textContent = Math.max(0, Math.round(t.outW - net)) + ' W';
+}
+
 // ---------- Render ----------
 let dev = null, st = null, pollTimer = null, linked = false, lastFc = null;
 
@@ -1189,6 +1221,7 @@ function render() {
   $('watts').textContent = Math.round(Math.abs(s.current * s.voltage));
   $('volt').textContent = s.voltage.toFixed(2);
   $('amps').textContent = (charging ? '+' : draining ? '−' : '') + Math.abs(s.current).toFixed(1);
+  renderSplit();
 
   // forecast
   const f = forecast(s); lastFc = f;
@@ -1380,6 +1413,9 @@ function showLast() {
     if (watching && (!wakeLock || wakeLock.released)) { try { wakeLock = await navigator.wakeLock?.request('screen'); } catch (e) {} }
     if (dev) refresh();
   });
+
+  // Listen to the Victron solar controllers saved on the Solar page (no prompts, nothing connects).
+  if (window.Victron && Victron.supported() && Victron.controllers().length) Victron.watch(() => renderSplit(), log);
 
   // Open on the dashboard and connect by itself to the battery picked before. The browser only
   // shows its device list the very first time (or if it has no way to remember the battery).
